@@ -41,12 +41,18 @@ Before running the frontend, make sure you have:
 
 - Node.js 18 or newer
 - npm
-- The backend API running locally at `http://127.0.0.1:8000`
+- A backend API URL configured in a local `.env` file
 
 ## Installation
 
 ```bash
 npm install
+```
+
+Create a `.env` file in the project root and add:
+
+```bash
+VITE_API_BASE_URL=https://anagha-ops-backend.onrender.com
 ```
 
 ## Running Locally
@@ -73,13 +79,7 @@ npm run preview
 
 ## Backend Dependency
 
-The frontend currently points to this backend base URL:
-
-```text
-http://127.0.0.1:8000
-```
-
-This value is hardcoded in the current frontend source. The app expects the backend to expose endpoints used for:
+The frontend reads the backend base URL from `VITE_API_BASE_URL` in your `.env` file. The app expects the backend to expose endpoints used for:
 
 - Authentication
 - Admin dashboard data

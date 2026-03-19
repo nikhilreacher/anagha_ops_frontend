@@ -6,10 +6,10 @@ import Delivery from "./pages/Delivery"
 import Payments from "./pages/Payments"
 import Dispatch from "./pages/Dispatch"
 import IT from "./pages/IT"
+import API_BASE from "./config/api"
 
 const AUTH_STORAGE_KEY = "anagha_ops_auth"
 const APP_VERSION = "v1.0.0"
-const API_BASE = "http://127.0.0.1:8000"
 
 function getDefaultRoute(role) {
   if (role === "it") {
