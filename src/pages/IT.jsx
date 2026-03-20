@@ -129,6 +129,14 @@ function formatShortDate(value) {
   })
 }
 
+function dayDifference(startValue, endValue) {
+  const start = new Date(startValue)
+  const end = new Date(endValue)
+  start.setHours(0, 0, 0, 0)
+  end.setHours(0, 0, 0, 0)
+  return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+}
+
 export default function IT() {
   const [authRole, setAuthRole] = useState("")
   const [returns, setReturns] = useState([])
@@ -145,6 +153,7 @@ export default function IT() {
     moc_month: "",
     total_sales: "",
     total_discount: "",
+    closing_stock_value: "",
   })
   const [stockForm, setStockForm] = useState({
     stock_date: currentDateInput(),
@@ -173,6 +182,7 @@ export default function IT() {
         moc_month: res.data.moc_month.slice(0, 7),
         total_sales: res.data.entry?.total_sales ?? "",
         total_discount: res.data.entry?.total_discount ?? "",
+        closing_stock_value: res.data.entry?.closing_stock_value ?? "",
       })
     })
   }
@@ -230,6 +240,7 @@ export default function IT() {
         moc_month: authRole === "admin" ? mocForm.moc_month : undefined,
         total_sales: Number(mocForm.total_sales),
         total_discount: Number(mocForm.total_discount || 0),
+        closing_stock_value: Number(mocForm.closing_stock_value || 0),
       },
     })
     alert("MOC data updated")
@@ -267,6 +278,7 @@ export default function IT() {
   const pendingReturns = returns.filter((item) => item.status === "pending")
   const resolvedReturns = returns.filter((item) => item.status !== "pending")
   const canManageMoc = mocMeta.allowed || authRole === "admin"
+  const currentMocLocked = Boolean(mocMeta.entry)
   const complianceSummary = useMemo(() => {
     const today = new Date()
     const weekStart = startOfCurrentWeek(today)
@@ -296,22 +308,42 @@ export default function IT() {
     const mocCompleted = mocMeta.entry ? 1 : 0
     const mocMissed = Math.max(mocExpected - mocCompleted, 0)
 
+    const returnChecks = returns.filter((item) => item.created_at)
+    const returnCompleted = returnChecks.filter((item) => {
+      if (item.status === "pending" || !item.resolved_at) {
+        return false
+      }
+      return dayDifference(item.created_at, item.resolved_at) <= 1
+    }).length
+    const returnMissed = returnChecks.filter((item) => {
+      if (item.status === "pending") {
+        return dayDifference(item.created_at, today) > 1
+      }
+      if (!item.resolved_at) {
+        return false
+      }
+      return dayDifference(item.created_at, item.resolved_at) > 1
+    }).length
+
     return {
-      completed: stockCompleted + mocCompleted,
-      missed: stockMissed + mocMissed,
+      completed: stockCompleted + mocCompleted + returnCompleted,
+      missed: stockMissed + mocMissed + returnMissed,
       stockCompleted,
       stockExpected,
       stockMissed,
       mocCompleted,
       mocExpected,
       mocMissed,
+      returnCompleted,
+      returnMissed,
+      returnExpected: returnChecks.length,
       stockRangeLabel:
         weekDays.length > 0
           ? `${formatShortDate(weekDays[0])} - ${formatShortDate(weekDays[weekDays.length - 1])}`
           : "This week",
       mocMonthKey,
     }
-  }, [authRole, mocMeta.entry, mocMeta.moc_month, stockEntries])
+  }, [authRole, mocMeta.entry, mocMeta.moc_month, returns, stockEntries])
 
   return (
     <div className="space-y-6">
@@ -329,7 +361,7 @@ export default function IT() {
               </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Daily Stock Compliance</p>
                 <p className="mt-3 text-3xl font-semibold text-slate-900">
@@ -339,6 +371,20 @@ export default function IT() {
                   {complianceSummary.stockMissed === 0
                     ? `All expected entries completed for ${complianceSummary.stockRangeLabel}.`
                     : `${complianceSummary.stockMissed} day(s) missed in ${complianceSummary.stockRangeLabel}.`}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Return Age Compliance</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900">
+                  {complianceSummary.returnCompleted}/{complianceSummary.returnExpected}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {complianceSummary.returnExpected === 0
+                    ? "No return checks created yet."
+                    : complianceSummary.returnMissed === 0
+                      ? "All return checks were closed within one day."
+                      : `${complianceSummary.returnMissed} return(s) crossed the one-day limit.`}
                 </p>
               </div>
 
@@ -385,17 +431,21 @@ export default function IT() {
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow space-y-4">
-        <h3 className="font-semibold">Daily Stock Update</h3>
+      <div className="rounded-[1.35rem] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        <div className="space-y-1">
+          <h3 className="text-lg font-semibold text-slate-900">Daily Stock Update</h3>
+          <p className="text-sm text-slate-500">Capture today’s stock and keep the IT log up to date.</p>
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+        <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+          <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Stock Date</label>
             <input
               type="date"
               value={stockForm.stock_date}
               onChange={(e) => setStockForm((current) => ({ ...current, stock_date: e.target.value }))}
-              className="border p-2 w-full rounded"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
             />
           </div>
 
@@ -406,17 +456,18 @@ export default function IT() {
               min="0"
               value={stockForm.stock_count}
               onChange={(e) => setStockForm((current) => ({ ...current, stock_count: e.target.value }))}
-              className="border p-2 w-full rounded"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
               placeholder="Enter stock amount"
             />
           </div>
 
           <button
             onClick={saveStock}
-            className="bg-black text-white px-4 py-2 rounded h-[42px]"
+            className="inline-flex h-[42px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2 font-semibold text-white"
           >
             Update Stock
           </button>
+        </div>
         </div>
 
         <div className="border-t border-slate-200 pt-4 space-y-4">
@@ -432,7 +483,7 @@ export default function IT() {
               <button
                 type="button"
                 onClick={() => setShowStockHistory((current) => !current)}
-                className="rounded border border-slate-300 bg-white px-4 py-2 text-sm"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
               >
                 {showStockHistory ? "Hide History" : "View History"}
               </button>
@@ -445,21 +496,21 @@ export default function IT() {
                 <button
                   type="button"
                   onClick={applyCurrentMonthFilter}
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-sm"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
                 >
                   Current Month
                 </button>
                 <button
                   type="button"
                   onClick={applyPreviousMonthFilter}
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-sm"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
                 >
                   Previous Month
                 </button>
                 <button
                   type="button"
                   onClick={clearStockFilter}
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-sm"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
                 >
                   All Entries
                 </button>
@@ -472,7 +523,7 @@ export default function IT() {
                     type="date"
                     value={stockFilters.from}
                     onChange={(e) => setStockFilters((current) => ({ ...current, from: e.target.value }))}
-                    className="border p-2 w-full rounded"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
 
@@ -482,7 +533,7 @@ export default function IT() {
                     type="date"
                     value={stockFilters.to}
                     onChange={(e) => setStockFilters((current) => ({ ...current, to: e.target.value }))}
-                    className="border p-2 w-full rounded"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
                   />
                 </div>
               </div>
@@ -509,16 +560,23 @@ export default function IT() {
       </div>
 
       {canManageMoc ? (
-        <div className="bg-white p-6 rounded-xl shadow space-y-4">
+        <div className="rounded-[1.35rem] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
           <div>
-            <h3 className="font-semibold">MOC Closing Entry</h3>
+            <h3 className="text-lg font-semibold text-slate-900">MOC Closing Entry</h3>
             <p className="text-sm text-gray-500">
               Enter final sales and cumulative discount for {mocMeta.target_month}.
               {authRole === "admin" && !mocMeta.allowed ? " Admin override is enabled." : ""}
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          {currentMocLocked ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              MOC entry already added for {mocMeta.target_month}. This cycle is now locked.
+            </div>
+          ) : null}
+
+          <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {authRole === "admin" ? (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">MOC Month</label>
@@ -526,7 +584,8 @@ export default function IT() {
                   type="month"
                   value={mocForm.moc_month}
                   onChange={(e) => setMocForm((current) => ({ ...current, moc_month: e.target.value }))}
-                  className="border p-2 w-full rounded"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                  disabled={currentMocLocked}
                 />
               </div>
             ) : null}
@@ -539,8 +598,9 @@ export default function IT() {
                 step="0.01"
                 value={mocForm.total_sales}
                 onChange={(e) => setMocForm((current) => ({ ...current, total_sales: e.target.value }))}
-                className="border p-2 w-full rounded"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
                 placeholder="Enter total sales"
+                disabled={currentMocLocked}
               />
             </div>
 
@@ -552,18 +612,37 @@ export default function IT() {
                 step="0.01"
                 value={mocForm.total_discount}
                 onChange={(e) => setMocForm((current) => ({ ...current, total_discount: e.target.value }))}
-                className="border p-2 w-full rounded"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
                 placeholder="Enter total discount"
+                disabled={currentMocLocked}
               />
             </div>
 
-            <button
-              type="button"
-              onClick={saveMoc}
-              className="bg-black text-white px-4 py-2 rounded h-[42px]"
-            >
-              Save MOC
-            </button>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">MOC Closing Stock Value</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={mocForm.closing_stock_value}
+                onChange={(e) => setMocForm((current) => ({ ...current, closing_stock_value: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                placeholder="Enter MOC closing stock value"
+                disabled={currentMocLocked}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <button
+                type="button"
+                onClick={saveMoc}
+                disabled={currentMocLocked}
+                className="inline-flex h-[42px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2 font-semibold text-white disabled:bg-slate-300 disabled:text-slate-600"
+              >
+                {currentMocLocked ? "MOC Entry Already Added" : "Save MOC"}
+              </button>
+            </div>
+          </div>
           </div>
 
           {authRole === "admin" ? (
@@ -576,7 +655,7 @@ export default function IT() {
                 <button
                   type="button"
                   onClick={() => setShowMocHistory((current) => !current)}
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-sm"
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
                 >
                   {showMocHistory ? "Hide History" : "View History"}
                 </button>
@@ -596,6 +675,7 @@ export default function IT() {
                             moc_month: item.moc_month.slice(0, 7),
                             total_sales: item.total_sales,
                             total_discount: item.total_discount,
+                            closing_stock_value: item.closing_stock_value ?? "",
                           })
                         }
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-left"
@@ -608,6 +688,7 @@ export default function IT() {
                           <div className="text-left md:text-right">
                             <p className="text-sm text-gray-500">Sales {Number(item.total_sales).toLocaleString("en-IN")}</p>
                             <p className="text-sm text-gray-500">Discount {Number(item.total_discount).toLocaleString("en-IN")}</p>
+                            <p className="text-sm text-gray-500">Closing Stock {Number(item.closing_stock_value || 0).toLocaleString("en-IN")}</p>
                           </div>
                         </div>
                       </button>

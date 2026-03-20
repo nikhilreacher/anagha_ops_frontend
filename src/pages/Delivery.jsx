@@ -49,6 +49,7 @@ export default function Delivery() {
   const [selectedDispatchId, setSelectedDispatchId] = useState(null)
   const [shops, setShops] = useState([])
   const [expandedShopId, setExpandedShopId] = useState(null)
+  const [loadingDispatchId, setLoadingDispatchId] = useState(null)
 
   useEffect(() => {
     axios.get(`${API_BASE}/dispatch`).then((res) => {
@@ -61,13 +62,20 @@ export default function Delivery() {
       setSelectedDispatchId(null)
       setShops([])
       setExpandedShopId(null)
+      setLoadingDispatchId(null)
       return
     }
 
-    const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`)
+    setLoadingDispatchId(dispatchId)
     setSelectedDispatchId(dispatchId)
-    setShops(response.data.filter((shop) => shop.outstanding > 0))
+    setShops([])
     setExpandedShopId(null)
+    try {
+      const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`)
+      setShops(response.data.filter((shop) => shop.outstanding > 0))
+    } finally {
+      setLoadingDispatchId(null)
+    }
   }
 
   return (
@@ -116,6 +124,9 @@ export default function Delivery() {
                     </div>
                   </div>
                 </div>
+                {loadingDispatchId === dispatch.id ? (
+                  <p className="mt-3 text-sm font-medium text-emerald-700">Loading dispatch shops...</p>
+                ) : null}
               </button>
             ))}
           </div>
@@ -129,7 +140,11 @@ export default function Delivery() {
             <p className="text-sm text-gray-500">{shops.length} shops with pending credit</p>
           </div>
 
-          {shops.length === 0 ? (
+          {loadingDispatchId === selectedDispatchId ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+              Loading shops and pending bills for this dispatch...
+            </div>
+          ) : shops.length === 0 ? (
             <p className="text-sm text-gray-500">No shops with pending credit in this dispatch.</p>
           ) : (
             <div className="space-y-3">

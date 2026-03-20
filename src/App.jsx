@@ -94,33 +94,35 @@ function AppShell({ auth, onLogout }) {
   }, [auth.role])
 
   return (
-    <div className="flex min-h-screen">
-      <div className="w-64 bg-black text-white p-5 flex flex-col">
-        <div className="sticky top-0 z-10 bg-black pb-4 mb-2">
+    <div className="flex h-screen overflow-hidden">
+      <div className="flex h-screen w-64 shrink-0 flex-col bg-black p-5 text-white">
+        <div className="z-10 bg-black pb-4 mb-2">
           <h1 className="text-xl font-bold">ANAGHA OPS</h1>
           <p className="mt-2 text-sm text-slate-300">{auth.label}</p>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           {navItems.map((item) => (
             <Link key={item.to} className="hover:bg-gray-800 p-2 rounded" to={item.to}>
               {item.label}
             </Link>
           ))}
+
+          <div className="mt-auto pt-4">
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full rounded border border-slate-700 px-4 py-2 text-left text-sm hover:bg-slate-900"
+            >
+              Logout
+            </button>
+
+            <p className="mt-3 text-xs text-slate-500">{APP_VERSION}</p>
+          </div>
         </div>
-
-        <button
-          type="button"
-          onClick={onLogout}
-          className="mt-auto rounded border border-slate-700 px-4 py-2 text-left text-sm hover:bg-slate-900"
-        >
-          Logout
-        </button>
-
-        <p className="mt-3 text-xs text-slate-500">{APP_VERSION}</p>
       </div>
 
-      <div className="flex-1 p-6 bg-gray-100">
+      <div className="flex-1 overflow-y-auto bg-gray-100 p-6">
         <Routes>
           {auth.role === "admin" ? (
             <>

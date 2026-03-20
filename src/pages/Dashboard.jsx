@@ -159,6 +159,7 @@ export default function Dashboard() {
     prev_moc_month: "",
     prev_moc_sales: 0,
     prev_moc_discount: 0,
+    prev_moc_closing_stock: 0,
     prev_moc_margin: 0,
     prev_moc_profit: 0,
     prev_moc_growth_percent: null,
@@ -213,6 +214,7 @@ export default function Dashboard() {
   const [hoveredExpenseIndex, setHoveredExpenseIndex] = useState(null)
   const [showMocHistoryModal, setShowMocHistoryModal] = useState(false)
   const [showMocProfitModal, setShowMocProfitModal] = useState(false)
+  const [showMocClosingStockModal, setShowMocClosingStockModal] = useState(false)
   const [mocHistory, setMocHistory] = useState([])
   const [mocHistoryLoading, setMocHistoryLoading] = useState(false)
   const [mocHistoryFilter, setMocHistoryFilter] = useState("12m")
@@ -254,6 +256,13 @@ export default function Dashboard() {
 
   const openMocProfitModal = async () => {
     setShowMocProfitModal(true)
+    if (!mocHistory.length) {
+      await loadMocHistory()
+    }
+  }
+
+  const openMocClosingStockModal = async () => {
+    setShowMocClosingStockModal(true)
     if (!mocHistory.length) {
       await loadMocHistory()
     }
@@ -347,6 +356,37 @@ export default function Dashboard() {
       padding
     )
   }, [mocProfitHistoryWithGrowth])
+
+  const mocClosingStockHistoryWithGrowth = useMemo(
+    () =>
+      filteredMocHistory.map((entry, index, rows) => {
+        const previous = rows[index - 1]
+        const closingStock = Number(entry.closing_stock_value || 0)
+        const previousClosingStock = Number(previous?.closing_stock_value || 0)
+        const growthPercent =
+          previous && previousClosingStock
+            ? ((closingStock - previousClosingStock) / previousClosingStock) * 100
+            : null
+
+        return {
+          ...entry,
+          growthPercent,
+        }
+      }),
+    [filteredMocHistory]
+  )
+
+  const mocClosingStockChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      mocClosingStockHistoryWithGrowth.map((entry) => Number(entry.closing_stock_value || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [mocClosingStockHistoryWithGrowth])
 
   const salaryPreview = useMemo(() => {
     if (!selectedEmployee) {
@@ -630,7 +670,7 @@ export default function Dashboard() {
         <button
           type="button"
           onClick={openMocHistoryModal}
-          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-teal-100/60 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,118,110,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(15,118,110,0.55)] focus:outline-none focus:ring-2 focus:ring-emerald-200 md:min-h-[200px] lg:col-span-6"
+          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-teal-100/60 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,118,110,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(15,118,110,0.55)] focus:outline-none focus:ring-2 focus:ring-emerald-200 md:min-h-[200px] lg:col-span-4"
         >
           <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
           <div className="space-y-2">
@@ -668,8 +708,33 @@ export default function Dashboard() {
 
         <button
           type="button"
+          onClick={openMocClosingStockModal}
+          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-amber-100 bg-gradient-to-br from-white via-amber-50/70 to-orange-100/60 p-5 text-left shadow-[0_18px_45px_-28px_rgba(217,119,6,0.42)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(217,119,6,0.5)] focus:outline-none focus:ring-2 focus:ring-amber-200 md:min-h-[200px] lg:col-span-4"
+        >
+          <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
+          <div className="space-y-2">
+            <p className="truncate text-sm font-semibold tracking-[0.02em] text-amber-900/75">
+              {data.prev_moc_month || "Prev. MOC"}
+            </p>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-base font-semibold leading-snug text-slate-900 md:text-lg">MOC Closing Stock</h2>
+              <span className="rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold text-amber-900 shadow-sm backdrop-blur">
+                View Trend
+              </span>
+            </div>
+          </div>
+          <div className="space-y-3 pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[1.75rem] font-semibold leading-tight text-slate-950 md:text-[2rem]">
+              {formatCurrency(data.prev_moc_closing_stock)}
+            </p>
+            <p className="text-sm text-amber-950/70">Month-end stock captured for this MOC cycle.</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
           onClick={openMocProfitModal}
-          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-sky-100 bg-gradient-to-br from-white via-sky-50/70 to-blue-100/65 p-5 text-left shadow-[0_18px_45px_-28px_rgba(37,99,235,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(37,99,235,0.55)] focus:outline-none focus:ring-2 focus:ring-sky-200 md:min-h-[200px] lg:col-span-6"
+          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-sky-100 bg-gradient-to-br from-white via-sky-50/70 to-blue-100/65 p-5 text-left shadow-[0_18px_45px_-28px_rgba(37,99,235,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(37,99,235,0.55)] focus:outline-none focus:ring-2 focus:ring-sky-200 md:min-h-[200px] lg:col-span-4"
         >
           <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
           <div className="space-y-2">
@@ -1016,6 +1081,164 @@ export default function Dashboard() {
                               <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.margin)}</td>
                               <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_expenses)}</td>
                               <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_discount)}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
+                                    entry.growthPercent === null
+                                      ? "bg-slate-100 text-slate-500"
+                                      : entry.growthPercent >= 0
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  {formatPercent(entry.growthPercent)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMocClosingStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">MOC Closing Stock</h3>
+                <p className="text-sm text-slate-500">
+                  Monthly closing stock trend with growth percentage and time-period filtering.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={mocHistoryFilter}
+                  onChange={(e) => setMocHistoryFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="6m">Last 6 MOCs</option>
+                  <option value="12m">Last 12 MOCs</option>
+                  <option value="24m">Last 24 MOCs</option>
+                  <option value="all">All Time</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowMocClosingStockModal(false)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {mocHistoryLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Loading MOC closing stock history...
+                </div>
+              ) : mocClosingStockHistoryWithGrowth.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  No MOC closing stock history recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Displayed MOCs</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">{mocClosingStockHistoryWithGrowth.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Closing Stock</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(mocClosingStockHistoryWithGrowth[mocClosingStockHistoryWithGrowth.length - 1]?.closing_stock_value)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Growth</p>
+                      <p
+                        className={`mt-2 text-2xl font-semibold ${
+                          (mocClosingStockHistoryWithGrowth[mocClosingStockHistoryWithGrowth.length - 1]?.growthPercent || 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {formatPercent(mocClosingStockHistoryWithGrowth[mocClosingStockHistoryWithGrowth.length - 1]?.growthPercent)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold text-slate-900">Closing Stock Trend</h4>
+                      <p className="text-sm text-slate-500">X axis shows MOC month and Y axis shows closing stock value.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 760 280" className="h-[280px] min-w-[760px] w-full">
+                        {mocClosingStockChart.yTicks.map((tick) => (
+                          <g key={tick.y}>
+                            <line x1="72" y1={tick.y} x2="740" y2={tick.y} stroke="#e2e8f0" strokeDasharray="4 4" />
+                            <text x="64" y={tick.y + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                              {formatCurrency(tick.value)}
+                            </text>
+                          </g>
+                        ))}
+                        <line x1="72" y1="20" x2="72" y2="240" stroke="#94a3b8" />
+                        <line x1="72" y1="240" x2="740" y2="240" stroke="#94a3b8" />
+                        <polyline
+                          fill="none"
+                          stroke="#d97706"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={mocClosingStockChart.points}
+                        />
+                        {mocClosingStockHistoryWithGrowth.map((entry, index) => {
+                          const values = mocClosingStockHistoryWithGrowth.map((item) => Number(item.closing_stock_value || 0))
+                          const maxValue = Math.max(...values, 0) || 1
+                          const innerWidth = 760 - 72 - 20
+                          const innerHeight = 280 - 20 - 40
+                          const x =
+                            values.length === 1
+                              ? 72 + innerWidth / 2
+                              : 72 + (index / (values.length - 1)) * innerWidth
+                          const y = 20 + innerHeight - (Number(entry.closing_stock_value || 0) / maxValue) * innerHeight
+
+                          return (
+                            <g key={entry.id}>
+                              <circle cx={x} cy={y} r="5" fill="#d97706" />
+                              <text x={x} y="260" textAnchor="middle" fontSize="11" fill="#64748b">
+                                {formatMonthLabel(entry.moc_month)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">MOC</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Closing Stock</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Growth</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {mocClosingStockHistoryWithGrowth
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <tr key={entry.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.target_month}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.closing_stock_value)}</td>
                               <td className="px-4 py-3 text-sm">
                                 <span
                                   className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
