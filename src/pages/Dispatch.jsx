@@ -43,6 +43,9 @@ export default function Dispatch() {
   const [creditFormByDispatch, setCreditFormByDispatch] = useState({})
   const [isSaving, setIsSaving] = useState(false)
 
+  const activeDispatchCount = dispatches.filter((dispatch) => dispatch.status === "active").length
+  const closedDispatchCount = dispatches.filter((dispatch) => dispatch.status === "closed").length
+
   useEffect(() => {
     axios.get(`${API_BASE}/routes`).then((res) => setBeats(res.data))
     axios.get(`${API_BASE}/dispatch`).then((res) => setDispatches(res.data))
@@ -232,7 +235,16 @@ export default function Dispatch() {
         )
       )
       resetCreditForm(dispatch.id)
-      alert("Credit entry added")
+      const smsStatus = response.data?.sms
+      if (smsStatus?.sent) {
+        alert("Credit entry added and SMS sent to the shop owner")
+      } else if (smsStatus?.reason === "sms_not_configured") {
+        alert("Credit entry added. SMS not sent because SMS is not configured yet")
+      } else if (smsStatus?.reason === "invalid_shop_phone") {
+        alert("Credit entry added. SMS not sent because the shop phone number is missing or invalid")
+      } else {
+        alert("Credit entry added. SMS could not be sent")
+      }
     } finally {
       setIsSavingCredit(false)
     }
@@ -269,103 +281,135 @@ export default function Dispatch() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow space-y-4">
-        <h2 className="text-lg font-semibold">Create Dispatch</h2>
+      <div className="overflow-hidden rounded-[1.5rem] border border-amber-100 bg-gradient-to-br from-white via-amber-50/70 to-orange-100/55 shadow-[0_18px_45px_-30px_rgba(217,119,6,0.35)]">
+        <div className="grid gap-6 p-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-start">
+          <div className="space-y-5">
+            <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800/80 shadow-sm backdrop-blur">
+              Dispatch Control
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold text-slate-900">Create Dispatch</h2>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                Build new dispatches, manage credit additions, and close delivery runs with a clearer operational snapshot.
+              </p>
+            </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Beat</label>
-            <div className="border rounded-xl p-3 bg-white space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {form.beat.length === 0 ? (
-                  <p className="text-sm text-gray-500">No beats selected yet.</p>
-                ) : (
-                  form.beat.map((selectedBeat) => (
-                    <span
-                      key={selectedBeat}
-                      className="px-3 py-1 rounded-full bg-slate-900 text-white text-sm"
-                    >
-                      {selectedBeat}
-                    </span>
-                  ))
-                )}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Active Dispatches</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900">{activeDispatchCount}</p>
+                <p className="mt-1 text-sm text-slate-600">Open runs that can still collect updates and close checks.</p>
               </div>
-
-              <div className="max-h-48 overflow-y-auto space-y-2">
-                {beats.map((beat) => {
-                  const beatValue = beat.beat_value ?? beat.id
-                  const isSelected = form.beat.includes(beatValue)
-
-                  return (
-                    <label
-                      key={beat.id}
-                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${
-                        isSelected
-                          ? "border-slate-900 bg-slate-50"
-                          : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleBeatSelection(beatValue)}
-                        className="mt-1"
-                      />
-                      <span className="text-sm text-gray-700">
-                        {beat.name}{beat.route_name ? ` - ${beat.route_name}` : ""}
-                      </span>
-                    </label>
-                  )
-                })}
+              <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Closed Dispatches</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900">{closedDispatchCount}</p>
+                <p className="mt-1 text-sm text-slate-600">Completed runs already archived with their final credit totals.</p>
               </div>
             </div>
-            <p className="text-xs text-gray-500">Tap one or more beats to include them in the dispatch.</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Total No. of Bills</label>
-            <input
-              type="number"
-              min="0"
-              value={form.total_bills}
-              onChange={(e) => updateField("total_bills", e.target.value)}
-              className="border p-2 w-full rounded"
-              placeholder="Enter total bills"
-            />
-          </div>
+          <div className="rounded-[1.35rem] border border-white/70 bg-white/85 p-5 shadow-sm backdrop-blur">
+            <div className="mb-4 space-y-1">
+              <h3 className="text-lg font-semibold text-slate-900">New Dispatch Details</h3>
+              <p className="text-sm text-slate-500">Select beats and enter summary counts to start a new dispatch.</p>
+            </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Total Cases</label>
-            <input
-              type="number"
-              min="0"
-              value={form.total_cases}
-              onChange={(e) => updateField("total_cases", e.target.value)}
-              className="border p-2 w-full rounded"
-              placeholder="Enter total cases"
-            />
-          </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">Beat</label>
+                <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {form.beat.length === 0 ? (
+                      <p className="text-sm text-gray-500">No beats selected yet.</p>
+                    ) : (
+                      form.beat.map((selectedBeat) => (
+                        <span
+                          key={selectedBeat}
+                          className="rounded-full bg-slate-900 px-3 py-1 text-sm text-white"
+                        >
+                          {selectedBeat}
+                        </span>
+                      ))
+                    )}
+                  </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Star Bags/Boxes</label>
-            <input
-              type="number"
-              min="0"
-              value={form.star_bags_boxes}
-              onChange={(e) => updateField("star_bags_boxes", e.target.value)}
-              className="border p-2 w-full rounded"
-              placeholder="Enter star bags/boxes"
-            />
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {beats.map((beat) => {
+                      const beatValue = beat.beat_value ?? beat.id
+                      const isSelected = form.beat.includes(beatValue)
+
+                      return (
+                        <label
+                          key={beat.id}
+                          className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition ${
+                            isSelected
+                              ? "border-slate-900 bg-slate-50 shadow-sm"
+                              : "border-slate-200 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleBeatSelection(beatValue)}
+                            className="mt-1"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {beat.name}{beat.route_name ? ` - ${beat.route_name}` : ""}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Tap one or more beats to include them in the dispatch.</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Total No. of Bills</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.total_bills}
+                  onChange={(e) => updateField("total_bills", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Enter total bills"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Total Cases</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.total_cases}
+                  onChange={(e) => updateField("total_cases", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Enter total cases"
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">Star Bags/Boxes</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.star_bags_boxes}
+                  onChange={(e) => updateField("star_bags_boxes", e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Enter star bags/boxes"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={createDispatch}
+              disabled={isSaving}
+              className="mt-5 inline-flex min-w-[180px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 font-semibold text-white disabled:opacity-60"
+            >
+              {isSaving ? "Creating..." : "Create Dispatch"}
+            </button>
           </div>
         </div>
-
-        <button
-          onClick={createDispatch}
-          disabled={isSaving}
-          className="bg-black text-white px-4 py-2 rounded disabled:opacity-60"
-        >
-          {isSaving ? "Creating..." : "Create"}
-        </button>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow space-y-4">
@@ -394,17 +438,19 @@ export default function Dispatch() {
               return (
                 <div
                   key={dispatch.id}
-                  className={`rounded-xl p-4 space-y-4 border ${
-                    isActive ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"
+                  className={`rounded-[1.25rem] p-4 space-y-4 border shadow-sm ${
+                    isActive
+                      ? "border-emerald-200 bg-gradient-to-br from-white via-emerald-50/70 to-green-100/55"
+                      : "border-rose-200 bg-gradient-to-br from-white via-rose-50/70 to-red-100/55"
                   }`}
                 >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-[1rem] border border-white/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold">{dispatch.beat}</p>
+                        <p className="font-semibold text-slate-900">{dispatch.beat}</p>
                         <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            isActive ? "bg-green-600 text-white" : "bg-red-600 text-white"
+                          className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                            isActive ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"
                           }`}
                         >
                           {isActive ? "Active" : "Closed"}
@@ -442,8 +488,7 @@ export default function Dispatch() {
                         <button
                           type="button"
                           onClick={() => toggleShops(dispatch.id)}
-                          className="inline-flex min-w-[220px] items-center justify-center px-4 py-2 rounded border shadow-sm font-semibold"
-                          style={{ backgroundColor: "#0f172a", color: "#ffffff", borderColor: "#0f172a" }}
+                          className="inline-flex min-w-[220px] items-center justify-center rounded-xl border border-slate-900 bg-slate-950 px-4 py-2.5 font-semibold text-white shadow-sm"
                         >
                           {openShopsDispatchId === dispatch.id
                             ? "Hide Shops In This Beat"
@@ -453,8 +498,7 @@ export default function Dispatch() {
                         <button
                           type="button"
                           onClick={() => toggleClosePanel(dispatch.id)}
-                          className="inline-flex min-w-[220px] items-center justify-center px-4 py-2 rounded border shadow-sm font-semibold"
-                          style={{ backgroundColor: "#047857", color: "#ffffff", borderColor: "#065f46" }}
+                          className="inline-flex min-w-[220px] items-center justify-center rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2.5 font-semibold text-white shadow-sm"
                         >
                           {openCloseDispatchId === dispatch.id ? "Hide Close Dispatch" : "Close Dispatch"}
                         </button>
@@ -515,7 +559,7 @@ export default function Dispatch() {
                                   const shopExpanded = expandedShopId === `${dispatch.id}-${shop.shop_id}`
 
                                   return (
-                                    <div key={shop.shop_id} className="bg-white rounded-xl border p-4">
+                                    <div key={shop.shop_id} className="rounded-[1rem] border border-slate-200 bg-white/90 p-4 shadow-sm">
                                       <div className="flex justify-between items-start gap-4">
                                         <div>
                                           <p className="font-semibold">{shop.shop}</p>
@@ -533,7 +577,7 @@ export default function Dispatch() {
                                                 shopExpanded ? null : `${dispatch.id}-${shop.shop_id}`
                                               )
                                             }
-                                            className="text-sm text-blue-600"
+                                            className="text-sm font-medium text-blue-600"
                                           >
                                             {shopExpanded ? "Hide bills" : "View bills"}
                                           </button>
@@ -579,7 +623,7 @@ export default function Dispatch() {
                       )}
 
                       {openCloseDispatchId === dispatch.id && (
-                        <div className="bg-white border rounded-xl p-4 space-y-4">
+                        <div className="rounded-[1rem] border border-slate-200 bg-white/90 p-4 space-y-4 shadow-sm">
                           <h4 className="font-semibold">Close Dispatch</h4>
 
                           <label className="flex items-center gap-2 text-sm">
@@ -605,7 +649,7 @@ export default function Dispatch() {
                           </label>
 
                           {closeForm.new_credits_checked && (
-                            <div className="bg-slate-50 border rounded-xl p-4 space-y-4">
+                            <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4 space-y-4">
                               <h5 className="font-semibold">Add Credit Entry</h5>
 
                               <div className="grid gap-4 md:grid-cols-2">
@@ -682,8 +726,7 @@ export default function Dispatch() {
                                 type="button"
                                 onClick={() => addCredit(dispatch)}
                                 disabled={isSavingCredit}
-                                className="inline-flex min-w-[220px] items-center justify-center px-4 py-2 rounded border shadow-sm font-semibold disabled:opacity-60"
-                                style={{ backgroundColor: "#2563eb", color: "#ffffff", borderColor: "#1d4ed8" }}
+                                className="inline-flex min-w-[220px] items-center justify-center rounded-xl border border-blue-700 bg-blue-600 px-4 py-2.5 font-semibold text-white shadow-sm disabled:opacity-60"
                               >
                                 {isSavingCredit ? "Saving..." : "Save And Add Entry"}
                               </button>
@@ -694,8 +737,7 @@ export default function Dispatch() {
                             type="button"
                             onClick={() => closeDispatch(dispatch)}
                             disabled={isClosing}
-                            className="inline-flex min-w-[220px] items-center justify-center px-4 py-2 rounded border shadow-sm font-semibold disabled:opacity-60"
-                            style={{ backgroundColor: "#047857", color: "#ffffff", borderColor: "#065f46" }}
+                            className="inline-flex min-w-[220px] items-center justify-center rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2.5 font-semibold text-white shadow-sm disabled:opacity-60"
                           >
                             {isClosing ? "Closing..." : "Close Dispatch"}
                           </button>

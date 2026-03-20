@@ -3,6 +3,65 @@ import axios from "axios"
 import API_BASE from "../config/api"
 const AUTH_STORAGE_KEY = "anagha_ops_auth"
 
+function polarToCartesian(cx, cy, radius, angleInDegrees) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians),
+  }
+}
+
+function describeArc(cx, cy, radius, startAngle, endAngle) {
+  const start = polarToCartesian(cx, cy, radius, endAngle)
+  const end = polarToCartesian(cx, cy, radius, startAngle)
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1"
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`
+}
+
+function ComplianceDonut({ completed, missed }) {
+  const total = completed + missed
+  const completedAngle = total ? (completed / total) * 360 : 0
+  const radius = 52
+  const circumference = 2 * Math.PI * radius
+  const completedOffset = circumference - (completed / (total || 1)) * circumference
+
+  return (
+    <div className="relative h-44 w-44 shrink-0">
+      <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90">
+        <circle cx="70" cy="70" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="16" />
+        <circle
+          cx="70"
+          cy="70"
+          r={radius}
+          fill="none"
+          stroke="#0f766e"
+          strokeWidth="16"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={completedOffset}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+        <p className="text-3xl font-semibold text-slate-900">{total}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Checks</p>
+      </div>
+      {total > 0 && missed > 0 ? (
+        <div className="pointer-events-none absolute inset-0">
+          <svg viewBox="0 0 140 140" className="h-full w-full">
+            <path
+              d={describeArc(70, 70, radius, completedAngle, 360)}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth="16"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function formatTimestamp(value) {
   return value
     ? new Date(value).toLocaleString("en-IN", {
@@ -52,6 +111,22 @@ function getPreviousMonthRange() {
     from: monthStartInput(previous),
     to: monthEndInput(previous),
   }
+}
+
+function startOfCurrentWeek(date) {
+  const next = new Date(date)
+  const day = next.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  next.setDate(next.getDate() + diff)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function formatShortDate(value) {
+  return value.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+  })
 }
 
 export default function IT() {
@@ -192,14 +267,122 @@ export default function IT() {
   const pendingReturns = returns.filter((item) => item.status === "pending")
   const resolvedReturns = returns.filter((item) => item.status !== "pending")
   const canManageMoc = mocMeta.allowed || authRole === "admin"
+  const complianceSummary = useMemo(() => {
+    const today = new Date()
+    const weekStart = startOfCurrentWeek(today)
+    const weekDays = []
+    const cursor = new Date(weekStart)
+    while (cursor <= today) {
+      if (cursor.getDay() !== 0) {
+        weekDays.push(new Date(cursor))
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+
+    const stockDates = new Set(
+      stockEntries.map((entry) => {
+        const key = entry.stock_date?.slice(0, 10)
+        return key
+      })
+    )
+    const stockCompleted = weekDays.filter((day) => stockDates.has(day.toISOString().slice(0, 10))).length
+    const stockExpected = weekDays.length
+    const stockMissed = Math.max(stockExpected - stockCompleted, 0)
+
+    const todayMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
+    const mocMonthKey = mocMeta.moc_month?.slice(0, 7) || todayMonthKey
+    const mocIsDue = today.getDate() >= 21 || authRole === "admin"
+    const mocExpected = mocIsDue ? 1 : 0
+    const mocCompleted = mocMeta.entry ? 1 : 0
+    const mocMissed = Math.max(mocExpected - mocCompleted, 0)
+
+    return {
+      completed: stockCompleted + mocCompleted,
+      missed: stockMissed + mocMissed,
+      stockCompleted,
+      stockExpected,
+      stockMissed,
+      mocCompleted,
+      mocExpected,
+      mocMissed,
+      stockRangeLabel:
+        weekDays.length > 0
+          ? `${formatShortDate(weekDays[0])} - ${formatShortDate(weekDays[weekDays.length - 1])}`
+          : "This week",
+      mocMonthKey,
+    }
+  }, [authRole, mocMeta.entry, mocMeta.moc_month, stockEntries])
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow space-y-2">
-        <h2 className="font-semibold text-lg">IT Panel</h2>
-        <p className="text-sm text-gray-500">
-          Track dispatch returns and update daily stock from here.
-        </p>
+      <div className="overflow-hidden rounded-[1.5rem] border border-cyan-100 bg-gradient-to-br from-white via-cyan-50/80 to-teal-100/60 shadow-[0_18px_45px_-30px_rgba(8,145,178,0.4)]">
+        <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.9fr] lg:items-center">
+          <div className="space-y-5">
+            <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-800/80 shadow-sm backdrop-blur">
+              IT Compliance
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-semibold text-slate-900">IT Panel</h2>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                Track dispatch returns, daily stock updates, and MOC discipline from one place.
+                The compliance chart shows how many expected IT checks were completed versus missed.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Daily Stock Compliance</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900">
+                  {complianceSummary.stockCompleted}/{complianceSummary.stockExpected}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {complianceSummary.stockMissed === 0
+                    ? `All expected entries completed for ${complianceSummary.stockRangeLabel}.`
+                    : `${complianceSummary.stockMissed} day(s) missed in ${complianceSummary.stockRangeLabel}.`}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/70 bg-white/75 p-4 shadow-sm backdrop-blur">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">MOC Compliance</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900">
+                  {complianceSummary.mocCompleted}/{complianceSummary.mocExpected || 1}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {complianceSummary.mocExpected === 0
+                    ? "MOC entry is not due yet for this cycle."
+                    : complianceSummary.mocMissed === 0
+                      ? `MOC entry recorded for ${mocMeta.target_month || complianceSummary.mocMonthKey}.`
+                      : `MOC entry is pending for ${mocMeta.target_month || complianceSummary.mocMonthKey}.`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[1.4rem] border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
+            <div className="flex flex-col items-center gap-4 md:flex-row md:items-center md:justify-between lg:flex-col lg:justify-center">
+              <ComplianceDonut completed={complianceSummary.completed} missed={complianceSummary.missed} />
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="h-3 w-3 rounded-full bg-teal-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Compliant</p>
+                    <p className="text-xs text-slate-500">{complianceSummary.completed} completed checks</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="h-3 w-3 rounded-full bg-rose-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Non-Compliant</p>
+                    <p className="text-xs text-slate-500">{complianceSummary.missed} missed checks</p>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  More compliance modules can be added here later without redesigning the panel.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow space-y-4">

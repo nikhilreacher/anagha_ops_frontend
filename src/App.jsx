@@ -9,7 +9,7 @@ import IT from "./pages/IT"
 import API_BASE from "./config/api"
 
 const AUTH_STORAGE_KEY = "anagha_ops_auth"
-const APP_VERSION = "v1.0.0"
+const APP_VERSION = "v1.3.0"
 
 function getDefaultRoute(role) {
   if (role === "it") {

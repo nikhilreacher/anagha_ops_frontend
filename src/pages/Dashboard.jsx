@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import axios from "axios"
+import { useNavigate } from "react-router-dom"
 import API_BASE from "../config/api"
 
 const PIE_COLORS = [
@@ -70,6 +71,50 @@ function formatExpenseDate(value) {
   return new Date(value).toLocaleDateString("en-IN", { dateStyle: "medium" })
 }
 
+function formatMonthLabel(value) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", {
+    month: "short",
+    year: "numeric",
+  })
+}
+
+function formatPercent(value) {
+  if (value === null || Number.isNaN(value)) {
+    return "N/A"
+  }
+  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toFixed(2)}%`
+}
+
+function buildLineChartPoints(values, width, height, padding) {
+  if (!values.length) {
+    return { points: "", yTicks: [] }
+  }
+
+  const maxValue = Math.max(...values, 0)
+  const innerWidth = width - padding.left - padding.right
+  const innerHeight = height - padding.top - padding.bottom
+  const safeMax = maxValue || 1
+
+  const points = values
+    .map((value, index) => {
+      const x =
+        values.length === 1
+          ? padding.left + innerWidth / 2
+          : padding.left + (index / (values.length - 1)) * innerWidth
+      const y = padding.top + innerHeight - (value / safeMax) * innerHeight
+      return `${x},${y}`
+    })
+    .join(" ")
+
+  const yTicks = Array.from({ length: 5 }, (_, index) => {
+    const tickValue = (safeMax / 4) * index
+    const y = padding.top + innerHeight - (tickValue / safeMax) * innerHeight
+    return { value: tickValue, y }
+  })
+
+  return { points, yTicks }
+}
+
 function EditIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
@@ -103,6 +148,7 @@ function TrendDownIcon() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [data, setData] = useState({
     total_outstanding: 0,
     average_stock_7_days: 0,
@@ -165,6 +211,11 @@ export default function Dashboard() {
   const [showSalaryCalculator, setShowSalaryCalculator] = useState(false)
   const [editingEmployeeId, setEditingEmployeeId] = useState(null)
   const [hoveredExpenseIndex, setHoveredExpenseIndex] = useState(null)
+  const [showMocHistoryModal, setShowMocHistoryModal] = useState(false)
+  const [showMocProfitModal, setShowMocProfitModal] = useState(false)
+  const [mocHistory, setMocHistory] = useState([])
+  const [mocHistoryLoading, setMocHistoryLoading] = useState(false)
+  const [mocHistoryFilter, setMocHistoryFilter] = useState("12m")
 
   const loadDashboard = () => {
     axios.get(`${API_BASE}/admin/dashboard`).then((res) => {
@@ -184,6 +235,30 @@ export default function Dashboard() {
     loadDashboard()
   }, [])
 
+  const loadMocHistory = async () => {
+    setMocHistoryLoading(true)
+    try {
+      const response = await axios.get(`${API_BASE}/shops/moc/history`)
+      setMocHistory(Array.isArray(response.data) ? response.data : [])
+    } finally {
+      setMocHistoryLoading(false)
+    }
+  }
+
+  const openMocHistoryModal = async () => {
+    setShowMocHistoryModal(true)
+    if (!mocHistory.length) {
+      await loadMocHistory()
+    }
+  }
+
+  const openMocProfitModal = async () => {
+    setShowMocProfitModal(true)
+    if (!mocHistory.length) {
+      await loadMocHistory()
+    }
+  }
+
   const pieSlices = useMemo(
     () => buildPieSlices(data.expense_breakdown),
     [data.expense_breakdown]
@@ -193,6 +268,85 @@ export default function Dashboard() {
     () => data.employees.find((employee) => String(employee.id) === String(salaryForm.employee_id)),
     [data.employees, salaryForm.employee_id]
   )
+
+  const filteredMocHistory = useMemo(() => {
+    const sortedHistory = [...mocHistory].sort(
+      (left, right) => new Date(left.moc_month).getTime() - new Date(right.moc_month).getTime()
+    )
+
+    if (mocHistoryFilter === "all") {
+      return sortedHistory
+    }
+
+    const monthsToKeep = Number(mocHistoryFilter.replace("m", ""))
+    if (!monthsToKeep || sortedHistory.length <= monthsToKeep) {
+      return sortedHistory
+    }
+
+    return sortedHistory.slice(-monthsToKeep)
+  }, [mocHistory, mocHistoryFilter])
+
+  const mocHistoryWithGrowth = useMemo(
+    () =>
+      filteredMocHistory.map((entry, index, rows) => {
+        const previous = rows[index - 1]
+        const sales = Number(entry.total_sales || 0)
+        const previousSales = Number(previous?.total_sales || 0)
+        const growthPercent =
+          previous && previousSales
+            ? ((sales - previousSales) / previousSales) * 100
+            : null
+
+        return {
+          ...entry,
+          growthPercent,
+        }
+      }),
+    [filteredMocHistory]
+  )
+
+  const mocChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      mocHistoryWithGrowth.map((entry) => Number(entry.total_sales || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [mocHistoryWithGrowth])
+
+  const mocProfitHistoryWithGrowth = useMemo(
+    () =>
+      filteredMocHistory.map((entry, index, rows) => {
+        const previous = rows[index - 1]
+        const profit = Number(entry.profit || 0)
+        const previousProfit = Number(previous?.profit || 0)
+        const growthPercent =
+          previous && previousProfit !== 0
+            ? ((profit - previousProfit) / Math.abs(previousProfit)) * 100
+            : null
+
+        return {
+          ...entry,
+          growthPercent,
+        }
+      }),
+    [filteredMocHistory]
+  )
+
+  const mocProfitChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      mocProfitHistoryWithGrowth.map((entry) => Number(entry.profit || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [mocProfitHistoryWithGrowth])
 
   const salaryPreview = useMemo(() => {
     if (!selectedEmployee) {
@@ -403,80 +557,489 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 2xl:grid-cols-6 xl:grid-cols-3 md:grid-cols-2">
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow">
+      <div className="grid gap-4 lg:grid-cols-12">
+        <button
+          type="button"
+          onClick={() => navigate("/credit")}
+          className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-rose-100 bg-gradient-to-br from-white via-rose-50/70 to-red-100/60 p-5 text-left shadow-[0_16px_40px_-28px_rgba(244,63,94,0.42)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_46px_-28px_rgba(244,63,94,0.5)] focus:outline-none focus:ring-2 focus:ring-rose-200 md:min-h-[148px] lg:col-span-3"
+        >
+          <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
+          <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-700/80 shadow-sm backdrop-blur">
+            Credit
+          </div>
           <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Total Outstanding</h2>
-          <p className="mt-3 overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-red-500 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {formatCurrency(data.total_outstanding)}
-          </p>
-        </div>
+          <div className="mt-auto pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-rose-600 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
+              {formatCurrency(data.total_outstanding)}
+            </p>
+          </div>
+        </button>
 
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow">
+        <div className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-amber-100 bg-gradient-to-br from-white via-amber-50/70 to-yellow-100/55 p-5 shadow-[0_16px_40px_-28px_rgba(217,119,6,0.38)] md:min-h-[148px] lg:col-span-3">
+          <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
+          <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 shadow-sm backdrop-blur">
+            Stock
+          </div>
           <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Avg. Stock (7 Days)</h2>
-          <p className="mt-3 overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {formatCurrency(data.average_stock_7_days)}
-          </p>
+          <div className="mt-auto pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
+              {formatCurrency(data.average_stock_7_days)}
+            </p>
+          </div>
         </div>
 
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow">
+        <div className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-indigo-100 bg-gradient-to-br from-white via-indigo-50/70 to-blue-100/55 p-5 shadow-[0_16px_40px_-28px_rgba(79,70,229,0.38)] md:min-h-[148px] lg:col-span-3">
+          <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
+          <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700/80 shadow-sm backdrop-blur">
+            Closing
+          </div>
           <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Prev. Day Stock</h2>
-          <p className="mt-3 overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {formatCurrency(data.previous_day_closing_stock)}
-          </p>
+          <div className="mt-auto pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
+              {formatCurrency(data.previous_day_closing_stock)}
+            </p>
+          </div>
         </div>
 
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow">
+        <button
+          type="button"
+          onClick={() => navigate("/dispatch")}
+          className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-violet-100 bg-gradient-to-br from-white via-violet-50/70 to-fuchsia-100/55 p-5 text-left shadow-[0_16px_40px_-28px_rgba(139,92,246,0.4)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_46px_-28px_rgba(139,92,246,0.48)] focus:outline-none focus:ring-2 focus:ring-violet-200 md:min-h-[148px] lg:col-span-3"
+        >
+          <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
+          <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700/80 shadow-sm backdrop-blur">
+            Dispatch
+          </div>
           <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Active Dispatches</h2>
-          <p className="mt-3 overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {data.active_dispatches}
-          </p>
-        </div>
-
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow space-y-2">
-          <p className="truncate text-sm font-medium text-slate-500">{data.prev_moc_month || "Prev. MOC"}</p>
-          <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Prev. MOC Sales</h2>
-          <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-900 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {formatCurrency(data.prev_moc_sales)}
-          </p>
-          {data.prev_moc_growth_percent === null ? (
-            <p className="text-sm text-slate-500">Growth not available yet</p>
+          {data.active_dispatches > 0 ? (
+            <div className="mt-auto pt-5">
+              <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-800 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
+                {data.active_dispatches}
+              </p>
+            </div>
           ) : (
-            <div
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold ${
-                data.prev_moc_growth_percent >= 0
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-rose-50 text-rose-700"
-              }`}
-            >
-              {data.prev_moc_growth_percent >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
-              {Math.abs(data.prev_moc_growth_percent).toFixed(2)}%
+            <div className="mt-auto space-y-1 pt-4">
+              <p className="text-lg font-semibold leading-tight text-slate-700 md:text-xl xl:text-2xl">
+                No active dispatches
+              </p>
+              <p className="text-sm text-slate-500">Open Dispatch page to create or review dispatches.</p>
             </div>
           )}
-          <p className="text-xs text-slate-500">Margin {formatCurrency(data.prev_moc_margin)}</p>
-        </div>
+        </button>
 
-        <div className="min-w-0 bg-white p-5 rounded-xl shadow space-y-2">
-          <p className="truncate text-sm font-medium text-slate-500">{data.prev_moc_month || "Prev. MOC"}</p>
-          <h2 className="text-base font-semibold leading-snug text-slate-800 md:text-lg">Prev. MOC Profit</h2>
-          <p className="overflow-hidden text-ellipsis whitespace-nowrap text-lg font-semibold leading-tight text-slate-900 md:text-xl xl:text-2xl 2xl:text-[1.75rem]">
-            {formatCurrency(data.prev_moc_profit)}
-          </p>
-          {data.prev_moc_profit_growth_percent === null ? (
-            <p className="text-sm text-slate-500">Profit growth not available yet</p>
-          ) : (
-            <div
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-semibold ${
-                data.prev_moc_profit_growth_percent >= 0
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-rose-50 text-rose-700"
-              }`}
-            >
-              {data.prev_moc_profit_growth_percent >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
-              {Math.abs(data.prev_moc_profit_growth_percent).toFixed(2)}%
+        <button
+          type="button"
+          onClick={openMocHistoryModal}
+          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-teal-100/60 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,118,110,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(15,118,110,0.55)] focus:outline-none focus:ring-2 focus:ring-emerald-200 md:min-h-[200px] lg:col-span-6"
+        >
+          <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
+          <div className="space-y-2">
+            <p className="truncate text-sm font-semibold tracking-[0.02em] text-emerald-800/75">
+              {data.prev_moc_month || "Prev. MOC"}
+            </p>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-base font-semibold leading-snug text-slate-900 md:text-lg">Prev. MOC Sales</h2>
+              <span className="rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold text-emerald-900 shadow-sm backdrop-blur">
+                View Trend
+              </span>
             </div>
-          )}
-        </div>
+          </div>
+          <div className="space-y-3 pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[1.75rem] font-semibold leading-tight text-slate-950 md:text-[2rem]">
+              {formatCurrency(data.prev_moc_sales)}
+            </p>
+            {data.prev_moc_growth_percent === null ? (
+              <p className="text-sm text-emerald-900/65">Growth not available yet</p>
+            ) : (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm ${
+                  data.prev_moc_growth_percent >= 0
+                    ? "bg-white/80 text-emerald-700"
+                    : "bg-white/80 text-rose-700"
+                }`}
+              >
+                {data.prev_moc_growth_percent >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
+                {Math.abs(data.prev_moc_growth_percent).toFixed(2)}%
+              </div>
+            )}
+            <p className="text-sm text-emerald-950/70">Margin {formatCurrency(data.prev_moc_margin)}</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={openMocProfitModal}
+          className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-sky-100 bg-gradient-to-br from-white via-sky-50/70 to-blue-100/65 p-5 text-left shadow-[0_18px_45px_-28px_rgba(37,99,235,0.45)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(37,99,235,0.55)] focus:outline-none focus:ring-2 focus:ring-sky-200 md:min-h-[200px] lg:col-span-6"
+        >
+          <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
+          <div className="space-y-2">
+            <p className="truncate text-sm font-semibold tracking-[0.02em] text-sky-900/75">
+              {data.prev_moc_month || "Prev. MOC"}
+            </p>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-base font-semibold leading-snug text-slate-900 md:text-lg">Prev. MOC Profit</h2>
+              <span className="rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold text-sky-900 shadow-sm backdrop-blur">
+                View Trend
+              </span>
+            </div>
+          </div>
+          <div className="space-y-3 pt-5">
+            <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[1.75rem] font-semibold leading-tight text-slate-950 md:text-[2rem]">
+              {formatCurrency(data.prev_moc_profit)}
+            </p>
+            {data.prev_moc_profit_growth_percent === null ? (
+              <p className="text-sm text-sky-900/65">Profit growth not available yet</p>
+            ) : (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm ${
+                  data.prev_moc_profit_growth_percent >= 0
+                    ? "bg-white/80 text-emerald-700"
+                    : "bg-white/80 text-rose-700"
+                }`}
+              >
+                {data.prev_moc_profit_growth_percent >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
+                {Math.abs(data.prev_moc_profit_growth_percent).toFixed(2)}%
+              </div>
+            )}
+          </div>
+        </button>
       </div>
+
+      {showMocHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Previous MOC Sales</h3>
+                <p className="text-sm text-slate-500">
+                  Monthly sales trend with growth percentage and time-period filtering.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={mocHistoryFilter}
+                  onChange={(e) => setMocHistoryFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="6m">Last 6 MOCs</option>
+                  <option value="12m">Last 12 MOCs</option>
+                  <option value="24m">Last 24 MOCs</option>
+                  <option value="all">All Time</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowMocHistoryModal(false)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {mocHistoryLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Loading MOC history...
+                </div>
+              ) : mocHistoryWithGrowth.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  No MOC sales history recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Displayed MOCs</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">{mocHistoryWithGrowth.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Sales</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(mocHistoryWithGrowth[mocHistoryWithGrowth.length - 1]?.total_sales)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Growth</p>
+                      <p
+                        className={`mt-2 text-2xl font-semibold ${
+                          (mocHistoryWithGrowth[mocHistoryWithGrowth.length - 1]?.growthPercent || 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {formatPercent(mocHistoryWithGrowth[mocHistoryWithGrowth.length - 1]?.growthPercent)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-base font-semibold text-slate-900">Sales Trend</h4>
+                        <p className="text-sm text-slate-500">X axis shows MOC month and Y axis shows sales amount.</p>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 760 280" className="h-[280px] min-w-[760px] w-full">
+                        {mocChart.yTicks.map((tick) => (
+                          <g key={tick.y}>
+                            <line
+                              x1="72"
+                              y1={tick.y}
+                              x2="740"
+                              y2={tick.y}
+                              stroke="#e2e8f0"
+                              strokeDasharray="4 4"
+                            />
+                            <text x="64" y={tick.y + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                              {formatCurrency(tick.value)}
+                            </text>
+                          </g>
+                        ))}
+
+                        <line x1="72" y1="20" x2="72" y2="240" stroke="#94a3b8" />
+                        <line x1="72" y1="240" x2="740" y2="240" stroke="#94a3b8" />
+
+                        <polyline
+                          fill="none"
+                          stroke="#0f766e"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={mocChart.points}
+                        />
+
+                        {mocHistoryWithGrowth.map((entry, index) => {
+                          const values = mocHistoryWithGrowth.map((item) => Number(item.total_sales || 0))
+                          const maxValue = Math.max(...values, 0) || 1
+                          const innerWidth = 760 - 72 - 20
+                          const innerHeight = 280 - 20 - 40
+                          const x =
+                            values.length === 1
+                              ? 72 + innerWidth / 2
+                              : 72 + (index / (values.length - 1)) * innerWidth
+                          const y = 20 + innerHeight - (Number(entry.total_sales || 0) / maxValue) * innerHeight
+
+                          return (
+                            <g key={entry.id}>
+                              <circle cx={x} cy={y} r="5" fill="#0f766e" />
+                              <text x={x} y="260" textAnchor="middle" fontSize="11" fill="#64748b">
+                                {formatMonthLabel(entry.moc_month)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">MOC</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Sales Amount</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Discount</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Growth</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {mocHistoryWithGrowth
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <tr key={entry.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.target_month}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_sales)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_discount)}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
+                                    entry.growthPercent === null
+                                      ? "bg-slate-100 text-slate-500"
+                                      : entry.growthPercent >= 0
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  {formatPercent(entry.growthPercent)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMocProfitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Previous MOC Profit</h3>
+                <p className="text-sm text-slate-500">
+                  Monthly profit trend with growth percentage and time-period filtering.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={mocHistoryFilter}
+                  onChange={(e) => setMocHistoryFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="6m">Last 6 MOCs</option>
+                  <option value="12m">Last 12 MOCs</option>
+                  <option value="24m">Last 24 MOCs</option>
+                  <option value="all">All Time</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowMocProfitModal(false)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {mocHistoryLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Loading MOC profit history...
+                </div>
+              ) : mocProfitHistoryWithGrowth.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  No MOC profit history recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Displayed MOCs</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">{mocProfitHistoryWithGrowth.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Profit</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(mocProfitHistoryWithGrowth[mocProfitHistoryWithGrowth.length - 1]?.profit)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Growth</p>
+                      <p
+                        className={`mt-2 text-2xl font-semibold ${
+                          (mocProfitHistoryWithGrowth[mocProfitHistoryWithGrowth.length - 1]?.growthPercent || 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {formatPercent(mocProfitHistoryWithGrowth[mocProfitHistoryWithGrowth.length - 1]?.growthPercent)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold text-slate-900">Profit Trend</h4>
+                      <p className="text-sm text-slate-500">X axis shows MOC month and Y axis shows profit amount.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 760 280" className="h-[280px] min-w-[760px] w-full">
+                        {mocProfitChart.yTicks.map((tick) => (
+                          <g key={tick.y}>
+                            <line x1="72" y1={tick.y} x2="740" y2={tick.y} stroke="#e2e8f0" strokeDasharray="4 4" />
+                            <text x="64" y={tick.y + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                              {formatCurrency(tick.value)}
+                            </text>
+                          </g>
+                        ))}
+                        <line x1="72" y1="20" x2="72" y2="240" stroke="#94a3b8" />
+                        <line x1="72" y1="240" x2="740" y2="240" stroke="#94a3b8" />
+                        <polyline
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={mocProfitChart.points}
+                        />
+                        {mocProfitHistoryWithGrowth.map((entry, index) => {
+                          const values = mocProfitHistoryWithGrowth.map((item) => Number(item.profit || 0))
+                          const maxValue = Math.max(...values, 0) || 1
+                          const innerWidth = 760 - 72 - 20
+                          const innerHeight = 280 - 20 - 40
+                          const x =
+                            values.length === 1
+                              ? 72 + innerWidth / 2
+                              : 72 + (index / (values.length - 1)) * innerWidth
+                          const y = 20 + innerHeight - (Number(entry.profit || 0) / maxValue) * innerHeight
+
+                          return (
+                            <g key={entry.id}>
+                              <circle cx={x} cy={y} r="5" fill="#2563eb" />
+                              <text x={x} y="260" textAnchor="middle" fontSize="11" fill="#64748b">
+                                {formatMonthLabel(entry.moc_month)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">MOC</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Profit</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Margin</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Expenses</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Discount</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Growth</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {mocProfitHistoryWithGrowth
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <tr key={entry.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.target_month}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.profit)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.margin)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_expenses)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_discount)}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
+                                    entry.growthPercent === null
+                                      ? "bg-slate-100 text-slate-500"
+                                      : entry.growthPercent >= 0
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  {formatPercent(entry.growthPercent)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-4">
