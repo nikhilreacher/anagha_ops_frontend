@@ -7,9 +7,10 @@ import Payments from "./pages/Payments"
 import Dispatch from "./pages/Dispatch"
 import IT from "./pages/IT"
 import API_BASE from "./config/api"
+import appLogo from "./assets/anagha-logo-transparent.png"
 
 const AUTH_STORAGE_KEY = "anagha_ops_auth"
-const APP_VERSION = "v1.3.0"
+const APP_VERSION = "v1.4.0"
 
 function getDefaultRoute(role) {
   if (role === "it") {
@@ -33,9 +34,16 @@ function LoginPage({ onLogin, error }) {
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl space-y-6">
-        <div className="space-y-2">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Anagha Ops</p>
-          <h1 className="text-2xl font-semibold text-slate-900">Login</h1>
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <img src={appLogo} alt="Anagha Operation logo" className="h-12 w-12 object-contain" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Anagha Operations</p>
+              <h1 className="text-2xl font-semibold text-slate-900">Login</h1>
+            </div>
+          </div>
           <p className="text-sm text-slate-500">
             Sign in to open the correct workspace for your team.
           </p>
@@ -96,9 +104,16 @@ function AppShell({ auth, onLogout }) {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="flex h-screen w-64 shrink-0 flex-col bg-black p-5 text-white">
-        <div className="z-10 bg-black pb-4 mb-2">
-          <h1 className="text-xl font-bold">ANAGHA OPS</h1>
-          <p className="mt-2 text-sm text-slate-300">{auth.label}</p>
+        <div className="z-10 mb-2 rounded-[1.4rem] border border-white/10 bg-white/5 p-4 shadow-[0_20px_40px_-30px_rgba(255,255,255,0.35)] backdrop-blur">
+          <div className="flex items-center gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white p-2 shadow-sm">
+              <img src={appLogo} alt="Anagha Operation logo" className="h-full w-full object-contain" />
+            </div>
+            <div className="min-w-0 pr-2">
+              <h1 className="text-[1.02rem] font-bold tracking-[0.08em] text-white">ANAGHA OPERATIONS</h1>
+              <p className="mt-1 text-sm text-slate-300">{auth.label}</p>
+            </div>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
