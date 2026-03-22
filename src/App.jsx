@@ -10,7 +10,7 @@ import API_BASE from "./config/api"
 import appLogo from "./assets/anagha-logo-transparent.png"
 
 const AUTH_STORAGE_KEY = "anagha_ops_auth"
-const APP_VERSION = "v1.4.0"
+const APP_VERSION = "v1.5.0"
 
 function getDefaultRoute(role) {
   if (role === "it") {

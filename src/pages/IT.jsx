@@ -152,6 +152,7 @@ export default function IT() {
   const [mocForm, setMocForm] = useState({
     moc_month: "",
     total_sales: "",
+    total_icd_sales: "",
     total_discount: "",
     closing_stock_value: "",
   })
@@ -181,6 +182,7 @@ export default function IT() {
       setMocForm({
         moc_month: res.data.moc_month.slice(0, 7),
         total_sales: res.data.entry?.total_sales ?? "",
+        total_icd_sales: res.data.entry?.total_icd_sales ?? "",
         total_discount: res.data.entry?.total_discount ?? "",
         closing_stock_value: res.data.entry?.closing_stock_value ?? "",
       })
@@ -239,6 +241,7 @@ export default function IT() {
       params: {
         moc_month: authRole === "admin" ? mocForm.moc_month : undefined,
         total_sales: Number(mocForm.total_sales),
+        total_icd_sales: Number(mocForm.total_icd_sales || 0),
         total_discount: Number(mocForm.total_discount || 0),
         closing_stock_value: Number(mocForm.closing_stock_value || 0),
       },
@@ -619,6 +622,20 @@ export default function IT() {
             </div>
 
             <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Total ICD Sales</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={mocForm.total_icd_sales}
+                onChange={(e) => setMocForm((current) => ({ ...current, total_icd_sales: e.target.value }))}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                placeholder="Enter total ICD sales"
+                disabled={currentMocLocked}
+              />
+            </div>
+
+            <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">MOC Closing Stock Value</label>
               <input
                 type="number"
@@ -674,6 +691,7 @@ export default function IT() {
                           setMocForm({
                             moc_month: item.moc_month.slice(0, 7),
                             total_sales: item.total_sales,
+                            total_icd_sales: item.total_icd_sales ?? "",
                             total_discount: item.total_discount,
                             closing_stock_value: item.closing_stock_value ?? "",
                           })
@@ -687,6 +705,7 @@ export default function IT() {
                           </div>
                           <div className="text-left md:text-right">
                             <p className="text-sm text-gray-500">Sales {Number(item.total_sales).toLocaleString("en-IN")}</p>
+                            <p className="text-sm text-gray-500">ICD Sales {Number(item.total_icd_sales || 0).toLocaleString("en-IN")}</p>
                             <p className="text-sm text-gray-500">Discount {Number(item.total_discount).toLocaleString("en-IN")}</p>
                             <p className="text-sm text-gray-500">Closing Stock {Number(item.closing_stock_value || 0).toLocaleString("en-IN")}</p>
                           </div>
