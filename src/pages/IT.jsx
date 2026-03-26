@@ -137,6 +137,10 @@ function dayDifference(startValue, endValue) {
   return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+function getTaskLabel(taskType) {
+  return taskType === "expiry" ? "Expiry" : "Return"
+}
+
 export default function IT() {
   const [authRole, setAuthRole] = useState("")
   const [returns, setReturns] = useState([])
@@ -311,14 +315,14 @@ export default function IT() {
     const mocCompleted = mocMeta.entry ? 1 : 0
     const mocMissed = Math.max(mocExpected - mocCompleted, 0)
 
-    const returnChecks = returns.filter((item) => item.created_at)
-    const returnCompleted = returnChecks.filter((item) => {
+    const dispatchChecks = returns.filter((item) => item.created_at)
+    const returnCompleted = dispatchChecks.filter((item) => {
       if (item.status === "pending" || !item.resolved_at) {
         return false
       }
       return dayDifference(item.created_at, item.resolved_at) <= 1
     }).length
-    const returnMissed = returnChecks.filter((item) => {
+    const returnMissed = dispatchChecks.filter((item) => {
       if (item.status === "pending") {
         return dayDifference(item.created_at, today) > 1
       }
@@ -339,7 +343,7 @@ export default function IT() {
       mocMissed,
       returnCompleted,
       returnMissed,
-      returnExpected: returnChecks.length,
+      returnExpected: dispatchChecks.length,
       stockRangeLabel:
         weekDays.length > 0
           ? `${formatShortDate(weekDays[0])} - ${formatShortDate(weekDays[weekDays.length - 1])}`
@@ -722,18 +726,23 @@ export default function IT() {
 
       <div className="bg-white p-6 rounded-xl shadow space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="font-semibold">Pending Returns</h3>
+          <h3 className="font-semibold">Pending Dispatch Checks</h3>
           <p className="text-sm text-gray-500">{pendingReturns.length} pending</p>
         </div>
 
         {pendingReturns.length === 0 ? (
-          <p className="text-sm text-gray-500">No pending returns right now.</p>
+          <p className="text-sm text-gray-500">No pending return or expiry checks right now.</p>
         ) : (
           <div className="space-y-3">
             {pendingReturns.map((item) => (
               <div key={item.id} className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
                 <div className="space-y-2">
-                  <p className="font-semibold">{item.route_label || item.beat || "Dispatch Return"}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">{item.route_label || item.beat || "Dispatch Check"}</p>
+                    <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">
+                      {getTaskLabel(item.task_type)}
+                    </span>
+                  </div>
                   <p className="text-sm text-gray-600">Dispatch ID: {item.dispatch_id}</p>
                   <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-2">
                     <p className="rounded-md bg-white/60 px-3 py-2">
@@ -752,13 +761,13 @@ export default function IT() {
                     onClick={() => updateReturn(item.id, "completed")}
                     className="bg-green-700 text-white px-4 py-2 rounded"
                   >
-                    Return Complete
+                    {getTaskLabel(item.task_type)} Complete
                   </button>
                   <button
                     onClick={() => updateReturn(item.id, "discarded")}
                     className="bg-red-700 text-white px-4 py-2 rounded"
                   >
-                    Discard
+                    Discard {getTaskLabel(item.task_type)}
                   </button>
                 </div>
               </div>
@@ -769,9 +778,9 @@ export default function IT() {
         <div className="border-t border-slate-200 pt-4 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h4 className="font-semibold">Resolved Return History</h4>
+              <h4 className="font-semibold">Resolved Dispatch Check History</h4>
               <p className="text-sm text-gray-500">
-                Review completed and discarded return actions here.
+                Review completed and discarded return and expiry actions here.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -789,12 +798,17 @@ export default function IT() {
           {showResolvedReturns && (
             <>
               {resolvedReturns.length === 0 ? (
-                <p className="text-sm text-gray-500">No resolved return records yet.</p>
+                <p className="text-sm text-gray-500">No resolved dispatch checks yet.</p>
               ) : (
                 <div className="space-y-3">
                   {resolvedReturns.map((item) => (
                     <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
-                      <p className="font-semibold">{item.route_label || item.beat || "Dispatch Return"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{item.route_label || item.beat || "Dispatch Check"}</p>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700">
+                          {getTaskLabel(item.task_type)}
+                        </span>
+                      </div>
                       <div className="flex flex-col gap-2 text-sm text-gray-600 md:flex-row md:items-center md:justify-between">
                         <p>Dispatch ID: {item.dispatch_id}</p>
                         <p className="font-medium capitalize text-slate-700">{item.status}</p>

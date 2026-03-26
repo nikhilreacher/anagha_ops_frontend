@@ -22,6 +22,16 @@ function formatCurrency(value) {
   }).format(value || 0)
 }
 
+function getInitialCreditForm() {
+  return {
+    shop_id: "",
+    shop_search: "",
+    bill_no: "",
+    bill_amt: "",
+    paid_amt: "",
+  }
+}
+
 export default function Dispatch() {
   const [beats, setBeats] = useState([])
   const [dispatches, setDispatches] = useState([])
@@ -70,22 +80,22 @@ export default function Dispatch() {
   const getCloseForm = (dispatch) =>
     closeFormByDispatch[dispatch.id] || {
       returns_checked: Boolean(dispatch.returns_checked),
+      expiry_checked: Boolean(dispatch.expiry_checked),
       new_credits_checked: Boolean(dispatch.new_credits_checked),
     }
 
   const getCreditForm = (dispatchId) =>
-    creditFormByDispatch[dispatchId] || {
-      shop_id: "",
-      bill_no: "",
-      bill_amt: "",
-      paid_amt: "",
-    }
+    creditFormByDispatch[dispatchId] || getInitialCreditForm()
 
   const updateCloseForm = (dispatchId, key, value) => {
     setCloseFormByDispatch((current) => ({
       ...current,
       [dispatchId]: {
-        ...(current[dispatchId] || { returns_checked: false, new_credits_checked: false }),
+        ...(current[dispatchId] || {
+          returns_checked: false,
+          expiry_checked: false,
+          new_credits_checked: false,
+        }),
         [key]: value,
       },
     }))
@@ -95,12 +105,7 @@ export default function Dispatch() {
     setCreditFormByDispatch((current) => ({
       ...current,
       [dispatchId]: {
-        ...(current[dispatchId] || {
-          shop_id: "",
-          bill_no: "",
-          bill_amt: "",
-          paid_amt: "",
-        }),
+        ...(current[dispatchId] || getInitialCreditForm()),
         [key]: value,
       },
     }))
@@ -109,12 +114,7 @@ export default function Dispatch() {
   const resetCreditForm = (dispatchId) => {
     setCreditFormByDispatch((current) => ({
       ...current,
-      [dispatchId]: {
-        shop_id: "",
-        bill_no: "",
-        bill_amt: "",
-        paid_amt: "",
-      },
+      [dispatchId]: getInitialCreditForm(),
     }))
   }
 
@@ -252,17 +252,13 @@ export default function Dispatch() {
 
   const closeDispatch = async (dispatch) => {
     const closeForm = getCloseForm(dispatch)
-    if (!closeForm.returns_checked) {
-      alert("Please check returns before closing dispatch")
-      return
-    }
-
     setIsClosing(true)
 
     try {
       const response = await axios.post(`${API_BASE}/dispatch/${dispatch.id}/close`, null, {
         params: {
           returns_checked: closeForm.returns_checked,
+          expiry_checked: closeForm.expiry_checked,
           new_credits_checked: closeForm.new_credits_checked,
           close_notes: "",
         },
@@ -427,6 +423,15 @@ export default function Dispatch() {
               const closeForm = getCloseForm(dispatch)
               const creditForm = getCreditForm(dispatch.id)
               const dispatchShops = dispatchShopsMap[dispatch.id] || []
+              const normalizedShopSearch = creditForm.shop_search.trim().toLowerCase()
+              const filteredDispatchShops = normalizedShopSearch
+                ? dispatchShops.filter((shop) =>
+                    shop.shop.toLowerCase().includes(normalizedShopSearch)
+                  )
+                : dispatchShops
+              const selectedCreditShop = dispatchShops.find(
+                (shop) => String(shop.shop_id) === String(creditForm.shop_id)
+              )
               const shopsWithCredit = dispatchShops.filter((shop) => shop.outstanding > 0)
               const shopPage = shopPageByDispatch[dispatch.id] || 1
               const totalShopPages = Math.max(1, Math.ceil(shopsWithCredit.length / SHOPS_PER_PAGE))
@@ -640,6 +645,17 @@ export default function Dispatch() {
                           <label className="flex items-center gap-2 text-sm">
                             <input
                               type="checkbox"
+                              checked={closeForm.expiry_checked}
+                              onChange={(e) =>
+                                updateCloseForm(dispatch.id, "expiry_checked", e.target.checked)
+                              }
+                            />
+                            Expiry
+                          </label>
+
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
                               checked={closeForm.new_credits_checked}
                               onChange={(e) =>
                                 updateCloseForm(dispatch.id, "new_credits_checked", e.target.checked)
@@ -665,18 +681,65 @@ export default function Dispatch() {
 
                                 <div className="space-y-2">
                                   <label className="text-sm font-medium text-gray-700">Store Name</label>
-                                  <select
-                                    value={creditForm.shop_id}
-                                    onChange={(e) => updateCreditForm(dispatch.id, "shop_id", e.target.value)}
-                                    className="border p-2 w-full rounded"
-                                  >
-                                    <option value="">Select Store</option>
-                                    {dispatchShops.map((shop) => (
-                                      <option key={shop.shop_id} value={shop.shop_id}>
-                                        {shop.shop}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  <div className="space-y-2">
+                                    <input
+                                      value={creditForm.shop_search}
+                                      onChange={(e) =>
+                                        setCreditFormByDispatch((current) => ({
+                                          ...current,
+                                          [dispatch.id]: {
+                                            ...(current[dispatch.id] || getInitialCreditForm()),
+                                            ...creditForm,
+                                            shop_search: e.target.value,
+                                            shop_id: "",
+                                          },
+                                        }))
+                                      }
+                                      className="border p-2 w-full rounded"
+                                      placeholder="Type shop name"
+                                    />
+
+                                    {creditForm.shop_search.trim() ? (
+                                      <div className="max-h-44 overflow-y-auto rounded border bg-white">
+                                        {filteredDispatchShops.length > 0 ? (
+                                          filteredDispatchShops.map((shop) => (
+                                            <button
+                                              key={shop.shop_id}
+                                              type="button"
+                                              onClick={() =>
+                                                setCreditFormByDispatch((current) => ({
+                                                  ...current,
+                                                  [dispatch.id]: {
+                                                    ...(current[dispatch.id] || getInitialCreditForm()),
+                                                    ...creditForm,
+                                                    shop_id: String(shop.shop_id),
+                                                    shop_search: shop.shop,
+                                                  },
+                                                }))
+                                              }
+                                              className="block w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-slate-50"
+                                            >
+                                              {shop.shop}
+                                            </button>
+                                          ))
+                                        ) : (
+                                          <p className="px-3 py-2 text-sm text-gray-500">
+                                            No matching shops found
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-gray-500">
+                                        Start typing to search shops in this dispatch.
+                                      </p>
+                                    )}
+
+                                    {selectedCreditShop && (
+                                      <p className="text-xs text-emerald-700">
+                                        Selected shop: {selectedCreditShop.shop}
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
 
                                 <div className="space-y-2">
