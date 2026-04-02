@@ -22,12 +22,15 @@ function getDefaultRoute(role) {
   return "/"
 }
 
-function LoginPage({ onLogin, error }) {
+function LoginPage({ onLogin, error, isLoggingIn }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
 
   const submit = (event) => {
     event.preventDefault()
+    if (isLoggingIn) {
+      return
+    }
     onLogin(username, password)
   }
 
@@ -58,6 +61,7 @@ function LoginPage({ onLogin, error }) {
               onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
               autoComplete="username"
+              disabled={isLoggingIn}
             />
           </div>
 
@@ -69,13 +73,32 @@ function LoginPage({ onLogin, error }) {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
               autoComplete="current-password"
+              disabled={isLoggingIn}
             />
           </div>
 
+          {isLoggingIn ? (
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+              Signing in...
+            </div>
+          ) : null}
+
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
 
-          <button type="submit" className="w-full rounded-lg bg-black px-4 py-2 text-white">
-            Login
+          <button
+            type="submit"
+            disabled={isLoggingIn}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isLoggingIn ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Signing in...
+              </>
+            ) : (
+              "Login"
+            )}
           </button>
         </form>
       </div>
@@ -173,6 +196,7 @@ function AppShell({ auth, onLogout }) {
 export default function App() {
   const [auth, setAuth] = useState(null)
   const [loginError, setLoginError] = useState("")
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
 
   useEffect(() => {
     const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
@@ -191,6 +215,9 @@ export default function App() {
   }, [])
 
   const handleLogin = async (username, password) => {
+    setIsLoggingIn(true)
+    setLoginError("")
+
     try {
       const response = await fetch(
         `${API_BASE}/auth/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
@@ -211,6 +238,8 @@ export default function App() {
       window.history.replaceState(null, "", getDefaultRoute(nextAuth.role))
     } catch {
       setLoginError("Unable to reach login service")
+    } finally {
+      setIsLoggingIn(false)
     }
   }
 
@@ -222,7 +251,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      {auth ? <AppShell auth={auth} onLogout={handleLogout} /> : <LoginPage onLogin={handleLogin} error={loginError} />}
+      {auth ? (
+        <AppShell auth={auth} onLogout={handleLogout} />
+      ) : (
+        <LoginPage onLogin={handleLogin} error={loginError} isLoggingIn={isLoggingIn} />
+      )}
     </BrowserRouter>
   )
 }

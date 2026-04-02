@@ -48,9 +48,11 @@ export default function Dispatch() {
     total_bills: "",
     total_cases: "",
     star_bags_boxes: "",
+    note: "",
   })
   const [closeFormByDispatch, setCloseFormByDispatch] = useState({})
   const [creditFormByDispatch, setCreditFormByDispatch] = useState({})
+  const [dispatchNotesById, setDispatchNotesById] = useState({})
   const [isSaving, setIsSaving] = useState(false)
 
   const activeDispatchCount = dispatches.filter((dispatch) => dispatch.status === "active").length
@@ -124,7 +126,7 @@ export default function Dispatch() {
   }
 
   const createDispatch = async () => {
-    const { beat, total_bills, total_cases, star_bags_boxes } = form
+    const { beat, total_bills, total_cases, star_bags_boxes, note } = form
 
     if (!beat.length || !total_bills || !total_cases || !star_bags_boxes) {
       alert("Please fill all dispatch details")
@@ -144,11 +146,18 @@ export default function Dispatch() {
       })
 
       setDispatches((current) => [response.data.dispatch, ...current])
+      if (note.trim()) {
+        setDispatchNotesById((current) => ({
+          ...current,
+          [response.data.dispatch.id]: note.trim(),
+        }))
+      }
       setForm({
         beat: [],
         total_bills: "",
         total_cases: "",
         star_bags_boxes: "",
+        note: "",
       })
       alert("Dispatch created")
     } finally {
@@ -197,9 +206,12 @@ export default function Dispatch() {
 
   const addCredit = async (dispatch) => {
     const creditForm = getCreditForm(dispatch.id)
-    const { shop_id, bill_no, bill_amt, paid_amt } = creditForm
+    const { shop_id, shop_search, bill_no, bill_amt, paid_amt } = creditForm
+    const normalizedShopName = shop_search.trim()
+    const usingExistingShop = Boolean(shop_id)
+    const hasValidShopSelection = usingExistingShop || Boolean(normalizedShopName)
 
-    if (!shop_id || !bill_no || bill_amt === "") {
+    if (!hasValidShopSelection || !bill_no || bill_amt === "") {
       alert("Please fill store name, bill no, and bill amount")
       return
     }
@@ -213,7 +225,11 @@ export default function Dispatch() {
 
       const response = await axios.post(`${API_BASE}/dispatch/${dispatch.id}/ledger`, null, {
         params: {
-          shop_id: Number(shop_id),
+          ...(usingExistingShop
+            ? { shop_id: Number(shop_id) }
+            : {
+                shop_name: normalizedShopName,
+              }),
           bill_no,
           bill_date: formatDateInput(dispatch.created_at),
           salesman: "",
@@ -267,6 +283,11 @@ export default function Dispatch() {
       setDispatches((current) =>
         current.map((item) => (item.id === dispatch.id ? response.data.dispatch : item))
       )
+      setDispatchNotesById((current) => {
+        const next = { ...current }
+        delete next[dispatch.id]
+        return next
+      })
       setOpenShopsDispatchId((current) => (current === dispatch.id ? null : current))
       setOpenCloseDispatchId((current) => (current === dispatch.id ? null : current))
       alert("Dispatch closed")
@@ -395,6 +416,19 @@ export default function Dispatch() {
                   placeholder="Enter star bags/boxes"
                 />
               </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">Remarks / Note</label>
+                <textarea
+                  value={form.note}
+                  onChange={(e) => updateField("note", e.target.value)}
+                  className="min-h-[96px] w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Add any extra info for this dispatch"
+                />
+                <p className="text-xs text-gray-500">
+                  This note is kept only in the UI and will disappear once the dispatch is closed.
+                </p>
+              </div>
             </div>
 
             <button
@@ -420,6 +454,7 @@ export default function Dispatch() {
           <div className="space-y-3">
             {dispatches.map((dispatch) => {
               const isActive = dispatch.status === "active"
+              const dispatchNote = dispatchNotesById[dispatch.id]
               const closeForm = getCloseForm(dispatch)
               const creditForm = getCreditForm(dispatch.id)
               const dispatchShops = dispatchShopsMap[dispatch.id] || []
@@ -468,6 +503,11 @@ export default function Dispatch() {
                         <p className="text-sm text-red-700">
                           Closed on {formatTimestamp(dispatch.closed_at)}
                         </p>
+                      )}
+                      {dispatchNote && (
+                        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          <span className="font-medium">Note:</span> {dispatchNote}
+                        </div>
                       )}
                     </div>
 
@@ -719,12 +759,17 @@ export default function Dispatch() {
                                               }
                                               className="block w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-slate-50"
                                             >
-                                              {shop.shop}
+                                              <span>{shop.shop}</span>
+                                              {shop.is_temporary ? (
+                                                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                                                  Temporary
+                                                </span>
+                                              ) : null}
                                             </button>
                                           ))
                                         ) : (
-                                          <p className="px-3 py-2 text-sm text-gray-500">
-                                            No matching shops found
+                                          <p className="px-3 py-2 text-sm text-amber-700">
+                                            No matching shop found. This name will be saved as a one-time shop.
                                           </p>
                                         )}
                                       </div>
@@ -734,11 +779,16 @@ export default function Dispatch() {
                                       </p>
                                     )}
 
-                                    {selectedCreditShop && (
+                                    {selectedCreditShop ? (
                                       <p className="text-xs text-emerald-700">
                                         Selected shop: {selectedCreditShop.shop}
+                                        {selectedCreditShop.is_temporary ? " (Temporary)" : ""}
                                       </p>
-                                    )}
+                                    ) : creditForm.shop_search.trim() ? (
+                                      <p className="text-xs text-amber-700">
+                                        This will be added as a one-time shop if no existing match is selected.
+                                      </p>
+                                    ) : null}
                                   </div>
                                 </div>
 

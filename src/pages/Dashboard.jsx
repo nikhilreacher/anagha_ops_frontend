@@ -78,6 +78,13 @@ function formatMonthLabel(value) {
   })
 }
 
+function formatDayLabel(value) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+  })
+}
+
 function formatPercent(value) {
   if (value === null || Number.isNaN(value)) {
     return "N/A"
@@ -153,6 +160,7 @@ export default function Dashboard() {
     total_outstanding: 0,
     average_stock_7_days: 0,
     previous_day_closing_stock: 0,
+    stock_history: [],
     active_dispatches: 0,
     current_month_expenses: 0,
     previous_month_expenses: 0,
@@ -213,10 +221,20 @@ export default function Dashboard() {
   const [showEmployeesList, setShowEmployeesList] = useState(true)
   const [showSalaryCalculator, setShowSalaryCalculator] = useState(false)
   const [editingEmployeeId, setEditingEmployeeId] = useState(null)
+  const [selectedEmployeeDetailId, setSelectedEmployeeDetailId] = useState(null)
+  const [employeeDetail, setEmployeeDetail] = useState(null)
+  const [employeeDetailLoading, setEmployeeDetailLoading] = useState(false)
+  const [editingAdvanceId, setEditingAdvanceId] = useState(null)
+  const [advanceEditForm, setAdvanceEditForm] = useState({
+    advance_date: "",
+    amount: "",
+    note: "",
+  })
   const [hoveredExpenseIndex, setHoveredExpenseIndex] = useState(null)
   const [showMocHistoryModal, setShowMocHistoryModal] = useState(false)
   const [showMocProfitModal, setShowMocProfitModal] = useState(false)
   const [showMocClosingStockModal, setShowMocClosingStockModal] = useState(false)
+  const [showStockTrendModal, setShowStockTrendModal] = useState(false)
   const [mocHistory, setMocHistory] = useState([])
   const [mocHistoryLoading, setMocHistoryLoading] = useState(false)
   const [mocHistoryFilter, setMocHistoryFilter] = useState("12m")
@@ -269,6 +287,37 @@ export default function Dashboard() {
       await loadMocHistory()
     }
   }
+
+  const stockHistoryWithGrowth = useMemo(
+    () =>
+      (data.stock_history || []).map((entry, index, rows) => {
+        const previous = rows[index - 1]
+        const stock = Number(entry.stock_count || 0)
+        const previousStock = Number(previous?.stock_count || 0)
+        const growthPercent =
+          previous && previousStock
+            ? ((stock - previousStock) / previousStock) * 100
+            : null
+
+        return {
+          ...entry,
+          growthPercent,
+        }
+      }),
+    [data.stock_history]
+  )
+
+  const stockTrendChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      stockHistoryWithGrowth.map((entry) => Number(entry.stock_count || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [stockHistoryWithGrowth])
 
   const pieSlices = useMemo(
     () => buildPieSlices(data.expense_breakdown),
@@ -403,7 +452,7 @@ export default function Dashboard() {
     if (workingDays && absentDays > workingDays) {
       return {
         invalid: true,
-        message: "Absent days exceed this salary month's working days.",
+        message: "Absent days exceed this salary cycle's working days.",
       }
     }
     const presentDays = Math.max(workingDays - absentDays, 0)
@@ -429,6 +478,8 @@ export default function Dashboard() {
       remainingSalary,
     }
   }, [selectedEmployee, salaryForm.absent_days, data.salary_total_days, data.salary_working_days, data.paid_leave_days])
+
+  const salaryAlreadyPaid = Boolean(selectedEmployee?.salary_cycle_paid)
 
   const saveExpense = async () => {
     if (!expenseForm.expense_date || !expenseForm.expense_type || expenseForm.amount === "") {
@@ -557,6 +608,72 @@ export default function Dashboard() {
       })
       setShowAdvanceForm(false)
       loadDashboard()
+      if (selectedEmployeeDetailId && String(selectedEmployeeDetailId) === String(advanceForm.employee_id)) {
+        await loadEmployeeDetail(advanceForm.employee_id)
+      }
+    } finally {
+      setSavingAdvance(false)
+    }
+  }
+
+  const loadEmployeeDetail = async (employeeId) => {
+    setEmployeeDetailLoading(true)
+    try {
+      const response = await axios.get(`${API_BASE}/admin/employees/${employeeId}`)
+      setEmployeeDetail(response.data)
+      setSelectedEmployeeDetailId(employeeId)
+    } finally {
+      setEmployeeDetailLoading(false)
+    }
+  }
+
+  const toggleEmployeeDetail = async (employeeId) => {
+    if (String(selectedEmployeeDetailId) === String(employeeId)) {
+      setSelectedEmployeeDetailId(null)
+      setEmployeeDetail(null)
+      setEditingAdvanceId(null)
+      return
+    }
+    setEditingAdvanceId(null)
+    await loadEmployeeDetail(employeeId)
+  }
+
+  const startEditAdvance = (advance) => {
+    setEditingAdvanceId(advance.id)
+    setAdvanceEditForm({
+      advance_date: advance.advance_date,
+      amount: String(advance.amount ?? ""),
+      note: advance.note || "",
+    })
+  }
+
+  const saveAdvanceEdit = async () => {
+    if (!employeeDetail?.employee?.id || !editingAdvanceId || !advanceEditForm.advance_date || advanceEditForm.amount === "") {
+      alert("Please fill advance date and amount")
+      return
+    }
+
+    setSavingAdvance(true)
+    try {
+      await axios.post(
+        `${API_BASE}/admin/employees/${employeeDetail.employee.id}/advances/${editingAdvanceId}`,
+        null,
+        {
+          params: {
+            advance_date: advanceEditForm.advance_date,
+            amount: Number(advanceEditForm.amount),
+            note: advanceEditForm.note,
+          },
+        }
+      )
+      setEditingAdvanceId(null)
+      setAdvanceEditForm({
+        advance_date: "",
+        amount: "",
+        note: "",
+      })
+      await loadEmployeeDetail(employeeDetail.employee.id)
+      loadDashboard()
     } finally {
       setSavingAdvance(false)
     }
@@ -591,6 +708,10 @@ export default function Dashboard() {
         payment_date: currentDateInput(),
         absent_days: "",
       }))
+      loadDashboard()
+    } catch (error) {
+      const message = error?.response?.data?.detail || "Unable to process salary payment"
+      alert(message)
       loadDashboard()
     } finally {
       setPayingSalary(false)
@@ -630,7 +751,11 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-indigo-100 bg-gradient-to-br from-white via-indigo-50/70 to-blue-100/55 p-5 shadow-[0_16px_40px_-28px_rgba(79,70,229,0.38)] md:min-h-[148px] lg:col-span-3">
+        <button
+          type="button"
+          onClick={() => setShowStockTrendModal(true)}
+          className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-indigo-100 bg-gradient-to-br from-white via-indigo-50/70 to-blue-100/55 p-5 text-left shadow-[0_16px_40px_-28px_rgba(79,70,229,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_46px_-28px_rgba(79,70,229,0.48)] focus:outline-none focus:ring-2 focus:ring-indigo-200 md:min-h-[148px] lg:col-span-3"
+        >
           <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
           <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700/80 shadow-sm backdrop-blur">
             Closing
@@ -641,7 +766,7 @@ export default function Dashboard() {
               {formatCurrency(data.previous_day_closing_stock)}
             </p>
           </div>
-        </div>
+        </button>
 
         <button
           type="button"
@@ -1273,6 +1398,308 @@ export default function Dashboard() {
         </div>
       )}
 
+      {showStockTrendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Daily Stock Trend</h3>
+                <p className="text-sm text-slate-500">
+                  One stock value per date. Previous day stock means the stock entered for yesterday.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStockTrendModal(false)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {stockHistoryWithGrowth.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  No stock history recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Displayed Days</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">{stockHistoryWithGrowth.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Stock</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(stockHistoryWithGrowth[stockHistoryWithGrowth.length - 1]?.stock_count)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Yesterday's Stock</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(data.previous_day_closing_stock)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold text-slate-900">Stock Trend</h4>
+                      <p className="text-sm text-slate-500">X axis shows stock date and Y axis shows recorded stock value.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 760 280" className="h-[280px] min-w-[760px] w-full">
+                        {stockTrendChart.yTicks.map((tick) => (
+                          <g key={tick.y}>
+                            <line x1="72" y1={tick.y} x2="740" y2={tick.y} stroke="#e2e8f0" strokeDasharray="4 4" />
+                            <text x="64" y={tick.y + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                              {formatCurrency(tick.value)}
+                            </text>
+                          </g>
+                        ))}
+                        <line x1="72" y1="20" x2="72" y2="240" stroke="#94a3b8" />
+                        <line x1="72" y1="240" x2="740" y2="240" stroke="#94a3b8" />
+                        <polyline
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={stockTrendChart.points}
+                        />
+                        {stockHistoryWithGrowth.map((entry, index) => {
+                          const values = stockHistoryWithGrowth.map((item) => Number(item.stock_count || 0))
+                          const maxValue = Math.max(...values, 0) || 1
+                          const innerWidth = 760 - 72 - 20
+                          const innerHeight = 280 - 20 - 40
+                          const x =
+                            values.length === 1
+                              ? 72 + innerWidth / 2
+                              : 72 + (index / (values.length - 1)) * innerWidth
+                          const y = 20 + innerHeight - (Number(entry.stock_count || 0) / maxValue) * innerHeight
+
+                          return (
+                            <g key={entry.stock_date}>
+                              <circle cx={x} cy={y} r="5" fill="#2563eb" />
+                              <text x={x} y="260" textAnchor="middle" fontSize="11" fill="#64748b">
+                                {formatDayLabel(entry.stock_date)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Stock</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Growth</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {stockHistoryWithGrowth
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <tr key={entry.stock_date} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-sm font-medium text-slate-900">{formatDayLabel(entry.stock_date)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.stock_count)}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
+                                    entry.growthPercent === null
+                                      ? "bg-slate-100 text-slate-500"
+                                      : entry.growthPercent >= 0
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  {formatPercent(entry.growthPercent)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-700">
+                                {entry.created_at ? formatExpenseDate(entry.created_at) : "NA"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedEmployeeDetailId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">
+                  {employeeDetail?.employee?.name || "Employee Advances"}
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Advance summary, salary status, and advances taken by date.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedEmployeeDetailId(null)
+                  setEmployeeDetail(null)
+                  setEditingAdvanceId(null)
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {employeeDetailLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Loading employee details...
+                </div>
+              ) : !employeeDetail ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Unable to load employee details.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Monthly Salary</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(employeeDetail.salary_summary.monthly_salary)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">This Month Advance</p>
+                      <p className="mt-2 text-2xl font-semibold text-amber-700">
+                        {formatCurrency(employeeDetail.salary_summary.salary_month_advance)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Advance Due</p>
+                      <p className="mt-2 text-2xl font-semibold text-rose-700">
+                        {formatCurrency(employeeDetail.salary_summary.outstanding_advance)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest Salary Paid</p>
+                      <p className="mt-2 text-2xl font-semibold text-emerald-700">
+                        {formatCurrency(employeeDetail.salary_summary.latest_salary_paid)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    {employeeDetail.salary_summary.latest_salary_payment_date
+                      ? `Latest salary payment date: ${formatExpenseDate(employeeDetail.salary_summary.latest_salary_payment_date)}`
+                      : "No salary payment recorded yet."}
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-slate-900">Advance History</h4>
+                      <p className="text-sm text-slate-500">{employeeDetail.advances.length} entries</p>
+                    </div>
+
+                    {employeeDetail.advances.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                        No advances recorded for this employee yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {employeeDetail.advances.map((advance) => (
+                          <div key={advance.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                            {editingAdvanceId === advance.id ? (
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-gray-700">Date</label>
+                                  <input
+                                    type="date"
+                                    value={advanceEditForm.advance_date}
+                                    onChange={(e) => setAdvanceEditForm((current) => ({ ...current, advance_date: e.target.value }))}
+                                    className="w-full rounded border border-slate-300 px-3 py-2"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-gray-700">Amount</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={advanceEditForm.amount}
+                                    onChange={(e) => setAdvanceEditForm((current) => ({ ...current, amount: e.target.value }))}
+                                    className="w-full rounded border border-slate-300 px-3 py-2"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-sm font-medium text-gray-700">Remark</label>
+                                  <input
+                                    type="text"
+                                    value={advanceEditForm.note}
+                                    onChange={(e) => setAdvanceEditForm((current) => ({ ...current, note: e.target.value }))}
+                                    className="w-full rounded border border-slate-300 px-3 py-2"
+                                  />
+                                </div>
+                                <div className="md:col-span-3 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={saveAdvanceEdit}
+                                    disabled={savingAdvance}
+                                    className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                                  >
+                                    {savingAdvance ? "Saving..." : "Save Advance Edit"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingAdvanceId(null)}
+                                    className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <p className="font-medium text-slate-900">{formatExpenseDate(advance.advance_date)}</p>
+                                  <p className="text-sm text-gray-500">{advance.note || "No remark"}</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <p className="font-semibold text-amber-700">{formatCurrency(advance.amount)}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditAdvance(advance)}
+                                    className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700"
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow">
@@ -1391,6 +1818,137 @@ export default function Dashboard() {
                     </button>
                   </div>
                 )}
+
+                {false ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    {employeeDetailLoading ? (
+                      <p className="text-sm text-gray-500">Loading employee details...</p>
+                    ) : !employeeDetail ? (
+                      <p className="text-sm text-gray-500">Unable to load employee details.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <h4 className="font-semibold">{employeeDetail.employee.name}</h4>
+                            <p className="text-sm text-gray-500">
+                              {employeeDetail.employee.role}
+                              {employeeDetail.employee.phone ? ` • ${employeeDetail.employee.phone}` : ""}
+                            </p>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">Monthly Salary</p>
+                              <p className="font-semibold text-slate-900">{formatCurrency(employeeDetail.salary_summary.monthly_salary)}</p>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">This Month Advance</p>
+                              <p className="font-semibold text-amber-700">{formatCurrency(employeeDetail.salary_summary.salary_month_advance)}</p>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">Advance Due</p>
+                              <p className="font-semibold text-rose-700">{formatCurrency(employeeDetail.salary_summary.outstanding_advance)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-gray-600">
+                          Latest salary paid:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {formatCurrency(employeeDetail.salary_summary.latest_salary_paid)}
+                          </span>
+                          {employeeDetail.salary_summary.latest_salary_payment_date
+                            ? ` on ${formatExpenseDate(employeeDetail.salary_summary.latest_salary_payment_date)}`
+                            : " not recorded yet"}
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h5 className="font-semibold">Advance History</h5>
+                            <p className="text-sm text-gray-500">{employeeDetail.advances.length} entries</p>
+                          </div>
+
+                          {employeeDetail.advances.length === 0 ? (
+                            <p className="text-sm text-gray-500">No advances recorded for this employee yet.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {employeeDetail.advances.map((advance) => (
+                                <div key={advance.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                                  {editingAdvanceId === advance.id ? (
+                                    <div className="grid gap-3 md:grid-cols-3">
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Date</label>
+                                        <input
+                                          type="date"
+                                          value={advanceEditForm.advance_date}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, advance_date: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Amount</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={advanceEditForm.amount}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, amount: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Remark</label>
+                                        <input
+                                          type="text"
+                                          value={advanceEditForm.note}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, note: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="md:col-span-3 flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={saveAdvanceEdit}
+                                          disabled={savingAdvance}
+                                          className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                                        >
+                                          {savingAdvance ? "Saving..." : "Save Advance Edit"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingAdvanceId(null)}
+                                          className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="font-medium text-slate-900">{formatExpenseDate(advance.advance_date)}</p>
+                                        <p className="text-sm text-gray-500">{advance.note || "No remark"}</p>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <p className="font-semibold text-amber-700">{formatCurrency(advance.amount)}</p>
+                                        <button
+                                          type="button"
+                                          onClick={() => startEditAdvance(advance)}
+                                          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700"
+                                        >
+                                          Edit
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between">
@@ -1602,7 +2160,20 @@ export default function Dashboard() {
                       {data.employees.map((employee) => (
                         <div
                           key={employee.id}
-                          className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 md:flex-row md:items-center md:justify-between"
+                          onClick={() => toggleEmployeeDetail(employee.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault()
+                              toggleEmployeeDetail(employee.id)
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          className={`flex w-full flex-col gap-2 rounded-lg border bg-white px-3 py-3 text-left md:flex-row md:items-center md:justify-between ${
+                            String(selectedEmployeeDetailId) === String(employee.id)
+                              ? "border-slate-900 shadow-sm"
+                              : "border-slate-200"
+                          }`}
                         >
                           <div>
                             <p className="font-medium">{employee.name}</p>
@@ -1620,7 +2191,10 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => startEditEmployee(employee)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                startEditEmployee(employee)
+                              }}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600"
                               title={`Edit ${employee.name}`}
                             >
@@ -1628,7 +2202,10 @@ export default function Dashboard() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => removeEmployee(employee)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                removeEmployee(employee)
+                              }}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600"
                               title={`Delete ${employee.name}`}
                             >
@@ -1641,7 +2218,138 @@ export default function Dashboard() {
                   ) : null}
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                {false ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    {employeeDetailLoading ? (
+                      <p className="text-sm text-gray-500">Loading employee details...</p>
+                    ) : !employeeDetail ? (
+                      <p className="text-sm text-gray-500">Unable to load employee details.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <h4 className="font-semibold">{employeeDetail.employee.name}</h4>
+                            <p className="text-sm text-gray-500">
+                              {employeeDetail.employee.role}
+                              {employeeDetail.employee.phone ? ` • ${employeeDetail.employee.phone}` : ""}
+                            </p>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">Monthly Salary</p>
+                              <p className="font-semibold text-slate-900">{formatCurrency(employeeDetail.salary_summary.monthly_salary)}</p>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">This Month Advance</p>
+                              <p className="font-semibold text-amber-700">{formatCurrency(employeeDetail.salary_summary.salary_month_advance)}</p>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-gray-500">Advance Due</p>
+                              <p className="font-semibold text-rose-700">{formatCurrency(employeeDetail.salary_summary.outstanding_advance)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-gray-600">
+                          Latest salary paid:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {formatCurrency(employeeDetail.salary_summary.latest_salary_paid)}
+                          </span>
+                          {employeeDetail.salary_summary.latest_salary_payment_date
+                            ? ` on ${formatExpenseDate(employeeDetail.salary_summary.latest_salary_payment_date)}`
+                            : " not recorded yet"}
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h5 className="font-semibold">Advance History</h5>
+                            <p className="text-sm text-gray-500">{employeeDetail.advances.length} entries</p>
+                          </div>
+
+                          {employeeDetail.advances.length === 0 ? (
+                            <p className="text-sm text-gray-500">No advances recorded for this employee yet.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {employeeDetail.advances.map((advance) => (
+                                <div key={advance.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                                  {editingAdvanceId === advance.id ? (
+                                    <div className="grid gap-3 md:grid-cols-3">
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Date</label>
+                                        <input
+                                          type="date"
+                                          value={advanceEditForm.advance_date}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, advance_date: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Amount</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={advanceEditForm.amount}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, amount: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="text-sm font-medium text-gray-700">Remark</label>
+                                        <input
+                                          type="text"
+                                          value={advanceEditForm.note}
+                                          onChange={(e) => setAdvanceEditForm((current) => ({ ...current, note: e.target.value }))}
+                                          className="w-full rounded border border-slate-300 px-3 py-2"
+                                        />
+                                      </div>
+                                      <div className="md:col-span-3 flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={saveAdvanceEdit}
+                                          disabled={savingAdvance}
+                                          className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                                        >
+                                          {savingAdvance ? "Saving..." : "Save Advance Edit"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingAdvanceId(null)}
+                                          className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="font-medium text-slate-900">{formatExpenseDate(advance.advance_date)}</p>
+                                        <p className="text-sm text-gray-500">{advance.note || "No remark"}</p>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <p className="font-semibold text-amber-700">{formatCurrency(advance.amount)}</p>
+                                        <button
+                                          type="button"
+                                          onClick={() => startEditAdvance(advance)}
+                                          className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700"
+                                        >
+                                          Edit
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                <div className="hidden rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between">
                     <h4 className="font-semibold">Recent Advances</h4>
                     <p className="text-sm text-gray-500">{data.recent_advances.length} items</p>
@@ -1705,7 +2413,7 @@ export default function Dashboard() {
                     Paid leave allowed: <span className="font-semibold text-slate-900">{data.paid_leave_days} day</span>
                   </p>
                   <p className="text-sm text-gray-600">
-                    Payment window: <span className="font-semibold text-slate-900">1st to 10th</span>
+                    Payment window: <span className="font-semibold text-slate-900">1st to 10th for previous month salary</span>
                   </p>
                 </div>
 
@@ -1774,7 +2482,7 @@ export default function Dashboard() {
                         <p className="font-semibold">{salaryPreview.absentDays}</p>
                       </div>
                       <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                        <p className="text-sm text-gray-500">Current Month Advance</p>
+                        <p className="text-sm text-gray-500">Salary Cycle Advance</p>
                         <p className="font-semibold text-amber-700">{formatCurrency(salaryPreview.previousMonthAdvance)}</p>
                       </div>
                       <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
@@ -1800,14 +2508,26 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={paySalary}
-                  disabled={payingSalary || !data.salary_window_open || salaryPreview?.invalid}
-                  className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  {payingSalary ? "Paying..." : data.salary_window_open ? "Pay" : "Pay Disabled"}
-                </button>
+                {salaryAlreadyPaid ? (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    Salary already paid for {data.salary_target_month}.
+                  </div>
+                ) : null}
+
+                {salaryAlreadyPaid ? (
+                  <div className="inline-flex rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white">
+                    Salary Already Paid
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={paySalary}
+                    disabled={payingSalary || !data.salary_window_open || salaryPreview?.invalid}
+                    className="rounded bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                  >
+                    {payingSalary ? "Paying..." : data.salary_window_open ? "Pay" : "Pay Disabled"}
+                  </button>
+                )}
               </div>
             )}
           </div>
