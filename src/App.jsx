@@ -19,6 +19,9 @@ function getDefaultRoute(role) {
   if (role === "delivery") {
     return "/delivery"
   }
+  if (role === "salesman") {
+    return "/credit"
+  }
   return "/"
 }
 
@@ -114,6 +117,9 @@ function AppShell({ auth, onLogout }) {
     if (auth.role === "delivery") {
       return [{ to: "/delivery", label: "Delivery" }]
     }
+    if (auth.role === "salesman") {
+      return [{ to: "/credit", label: "Credit" }]
+    }
     return [
       { to: "/", label: "Dashboard" },
       { to: "/credit", label: "Credit" },
@@ -165,10 +171,10 @@ function AppShell({ auth, onLogout }) {
           {auth.role === "admin" ? (
             <>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/credit" element={<Credit />} />
-              <Route path="/delivery" element={<Delivery />} />
-              <Route path="/payments" element={<Payments />} />
-              <Route path="/dispatch" element={<Dispatch />} />
+              <Route path="/credit" element={<Credit auth={auth} />} />
+              <Route path="/delivery" element={<Delivery auth={auth} />} />
+              <Route path="/payments" element={<Payments auth={auth} />} />
+              <Route path="/dispatch" element={<Dispatch auth={auth} />} />
               <Route path="/it" element={<IT />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </>
@@ -183,8 +189,15 @@ function AppShell({ auth, onLogout }) {
 
           {auth.role === "delivery" ? (
             <>
-              <Route path="/delivery" element={<Delivery />} />
+              <Route path="/delivery" element={<Delivery auth={auth} />} />
               <Route path="*" element={<Navigate to="/delivery" replace />} />
+            </>
+          ) : null}
+
+          {auth.role === "salesman" ? (
+            <>
+              <Route path="/credit" element={<Credit auth={auth} />} />
+              <Route path="*" element={<Navigate to="/credit" replace />} />
             </>
           ) : null}
         </Routes>

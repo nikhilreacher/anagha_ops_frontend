@@ -2,6 +2,10 @@ import { useEffect, useState } from "react"
 import axios from "axios"
 import API_BASE from "../config/api"
 const SHOPS_PER_PAGE = 10
+const BUSINESS_OPTIONS = [
+  { value: "mainline", label: "Mainline" },
+  { value: "icd", label: "ICD" },
+]
 
 function formatTimestamp(value) {
   return new Date(value).toLocaleString("en-IN", {
@@ -32,9 +36,10 @@ function getInitialCreditForm() {
   }
 }
 
-export default function Dispatch() {
+export default function Dispatch({ auth }) {
   const [beats, setBeats] = useState([])
   const [dispatches, setDispatches] = useState([])
+  const [businessType, setBusinessType] = useState(auth?.business_type === "icd" ? "icd" : "mainline")
   const [openShopsDispatchId, setOpenShopsDispatchId] = useState(null)
   const [openCloseDispatchId, setOpenCloseDispatchId] = useState(null)
   const [dispatchShopsMap, setDispatchShopsMap] = useState({})
@@ -57,11 +62,27 @@ export default function Dispatch() {
 
   const activeDispatchCount = dispatches.filter((dispatch) => dispatch.status === "active").length
   const closedDispatchCount = dispatches.filter((dispatch) => dispatch.status === "closed").length
+  const isIcdBusiness = businessType === "icd"
 
   useEffect(() => {
-    axios.get(`${API_BASE}/routes`).then((res) => setBeats(res.data))
-    axios.get(`${API_BASE}/dispatch`).then((res) => setDispatches(res.data))
-  }, [])
+    setOpenShopsDispatchId(null)
+    setOpenCloseDispatchId(null)
+    setDispatchShopsMap({})
+    setExpandedShopId(null)
+    setShopPageByDispatch({})
+    setCloseFormByDispatch({})
+    setCreditFormByDispatch({})
+    setDispatchNotesById({})
+    setForm({
+      beat: [],
+      total_bills: "",
+      total_cases: "",
+      star_bags_boxes: "",
+      note: "",
+    })
+    axios.get(`${API_BASE}/routes`, { params: { business_type: businessType } }).then((res) => setBeats(res.data))
+    axios.get(`${API_BASE}/dispatch`, { params: { business_type: businessType } }).then((res) => setDispatches(res.data))
+  }, [businessType])
 
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -121,14 +142,16 @@ export default function Dispatch() {
   }
 
   const loadDispatchShops = async (dispatchId) => {
-    const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`)
+    const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`, {
+      params: { business_type: businessType },
+    })
     setDispatchShopsMap((current) => ({ ...current, [dispatchId]: response.data }))
   }
 
   const createDispatch = async () => {
     const { beat, total_bills, total_cases, star_bags_boxes, note } = form
 
-    if (!beat.length || !total_bills || !total_cases || !star_bags_boxes) {
+    if (!beat.length || !total_bills || !total_cases || (!isIcdBusiness && !star_bags_boxes)) {
       alert("Please fill all dispatch details")
       return
     }
@@ -141,7 +164,8 @@ export default function Dispatch() {
           beat: beat.join(","),
           total_bills: Number(total_bills),
           total_cases: Number(total_cases),
-          star_bags_boxes: Number(star_bags_boxes),
+          star_bags_boxes: isIcdBusiness ? 0 : Number(star_bags_boxes),
+          business_type: businessType,
         },
       })
 
@@ -238,6 +262,7 @@ export default function Dispatch() {
           balance,
           paid_date: "",
           remarks: "",
+          business_type: businessType,
         },
       })
 
@@ -309,6 +334,22 @@ export default function Dispatch() {
               <p className="max-w-2xl text-sm leading-6 text-slate-600">
                 Build new dispatches, manage credit additions, and close delivery runs with a clearer operational snapshot.
               </p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {BUSINESS_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setBusinessType(option.value)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      businessType === option.value
+                        ? "bg-slate-950 text-white"
+                        : "border border-slate-300 bg-white text-slate-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -405,17 +446,19 @@ export default function Dispatch() {
                 />
               </div>
 
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">Star Bags/Boxes</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.star_bags_boxes}
-                  onChange={(e) => updateField("star_bags_boxes", e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                  placeholder="Enter star bags/boxes"
-                />
-              </div>
+              {!isIcdBusiness ? (
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-sm font-medium text-gray-700">Star Bags/Boxes</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.star_bags_boxes}
+                    onChange={(e) => updateField("star_bags_boxes", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                    placeholder="Enter star bags/boxes"
+                  />
+                </div>
+              ) : null}
 
               <div className="space-y-2 md:col-span-2">
                 <label className="text-sm font-medium text-gray-700">Remarks / Note</label>
@@ -511,7 +554,7 @@ export default function Dispatch() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3 text-sm md:text-right">
+                    <div className={`grid gap-3 text-sm md:text-right ${isIcdBusiness ? "grid-cols-2" : "grid-cols-3"}`}>
                       <div>
                         <p className="text-gray-500">Bills</p>
                         <p className="font-semibold">{dispatch.total_bills}</p>
@@ -520,10 +563,12 @@ export default function Dispatch() {
                         <p className="text-gray-500">Cases</p>
                         <p className="font-semibold">{dispatch.total_cases}</p>
                       </div>
-                      <div>
-                        <p className="text-gray-500">Star Bags/Boxes</p>
-                        <p className="font-semibold">{dispatch.star_bags_boxes}</p>
-                      </div>
+                      {!isIcdBusiness ? (
+                        <div>
+                          <p className="text-gray-500">Star Bags/Boxes</p>
+                          <p className="font-semibold">{dispatch.star_bags_boxes}</p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

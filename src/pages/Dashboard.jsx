@@ -158,6 +158,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [data, setData] = useState({
     total_outstanding: 0,
+    total_icd_outstanding: 0,
     average_stock_7_days: 0,
     previous_day_closing_stock: 0,
     stock_history: [],
@@ -738,18 +739,22 @@ export default function Dashboard() {
           </div>
         </button>
 
-        <div className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-amber-100 bg-gradient-to-br from-white via-amber-50/70 to-yellow-100/55 p-5 shadow-[0_16px_40px_-28px_rgba(217,119,6,0.38)] md:min-h-[148px] lg:col-span-3">
+        <button
+          type="button"
+          onClick={() => navigate("/credit?business=icd")}
+          className="group relative flex min-w-0 flex-col overflow-hidden rounded-[1.2rem] border border-amber-100 bg-gradient-to-br from-white via-amber-50/70 to-yellow-100/55 p-5 text-left shadow-[0_16px_40px_-28px_rgba(217,119,6,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_46px_-28px_rgba(217,119,6,0.48)] focus:outline-none focus:ring-2 focus:ring-amber-200 md:min-h-[148px] lg:col-span-3"
+        >
           <div className="pointer-events-none absolute right-0 top-0 h-20 w-20 rounded-full bg-white/50 blur-2xl" />
           <div className="inline-flex w-fit rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 shadow-sm backdrop-blur">
-            Stock
+            ICD
           </div>
-          <h2 className="text-sm font-semibold leading-snug text-slate-800 md:text-[0.95rem]">Avg. Stock (7 Days)</h2>
+          <h2 className="text-sm font-semibold leading-snug text-slate-800 md:text-[0.95rem]">ICD Credit</h2>
           <div className="mt-auto pt-5">
             <p className="overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold leading-tight text-slate-800 md:text-lg xl:text-xl 2xl:text-[1.45rem]">
-              {formatCurrency(data.average_stock_7_days)}
+              {formatCurrency(data.total_icd_outstanding)}
             </p>
           </div>
-        </div>
+        </button>
 
         <button
           type="button"

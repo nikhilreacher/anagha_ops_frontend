@@ -79,6 +79,14 @@ function formatDate(value) {
     : "NA"
 }
 
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(value || 0)
+}
+
 function currentDateInput() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -145,6 +153,21 @@ export default function IT() {
   const [authRole, setAuthRole] = useState("")
   const [returns, setReturns] = useState([])
   const [stockEntries, setStockEntries] = useState([])
+  const [icdBeats, setIcdBeats] = useState([])
+  const [icdShops, setIcdShops] = useState([])
+  const [recentIcdCredits, setRecentIcdCredits] = useState([])
+  const [showIcdCreditForm, setShowIcdCreditForm] = useState(false)
+  const [showRecentIcdCredits, setShowRecentIcdCredits] = useState(false)
+  const [icdCreditForm, setIcdCreditForm] = useState({
+    beat: "",
+    shop_id: "",
+    bill_no: "",
+    bill_date: currentDateInput(),
+    delivery_date: currentDateInput(),
+    bill_amt: "",
+    paid_amt: "",
+    remarks: "",
+  })
   const [mocMeta, setMocMeta] = useState({
     allowed: false,
     target_month: "",
@@ -153,6 +176,7 @@ export default function IT() {
   })
   const [mocHistory, setMocHistory] = useState([])
   const [showMocHistory, setShowMocHistory] = useState(false)
+  const [showMocSection, setShowMocSection] = useState(false)
   const [mocForm, setMocForm] = useState({
     moc_month: "",
     total_sales: "",
@@ -197,6 +221,20 @@ export default function IT() {
     axios.get(`${API_BASE}/shops/moc/history`).then((res) => setMocHistory(res.data))
   }
 
+  const loadIcdBeats = () => {
+    axios.get(`${API_BASE}/routes`, { params: { business_type: "icd" } }).then((res) => setIcdBeats(res.data))
+  }
+
+  const loadIcdShops = (beat = "") => {
+    axios
+      .get(`${API_BASE}/shops/icd-credit/shops`, { params: { beat } })
+      .then((res) => setIcdShops(res.data))
+  }
+
+  const loadRecentIcdCredits = () => {
+    axios.get(`${API_BASE}/shops/icd-credit/recent`, { params: { limit: 2 } }).then((res) => setRecentIcdCredits(res.data))
+  }
+
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
@@ -210,6 +248,9 @@ export default function IT() {
     loadStockEntries()
     loadMocMeta()
     loadMocHistory()
+    loadIcdBeats()
+    loadIcdShops()
+    loadRecentIcdCredits()
   }, [])
 
   const updateReturn = async (taskId, action) => {
@@ -253,6 +294,37 @@ export default function IT() {
     alert("MOC data updated")
     loadMocMeta()
     loadMocHistory()
+  }
+
+  const saveIcdCredit = async () => {
+    if (!icdCreditForm.shop_id || icdCreditForm.bill_amt === "") {
+      alert("Please select an ICD shop and enter the bill amount")
+      return
+    }
+
+    await axios.post(`${API_BASE}/shops/icd-credit`, null, {
+      params: {
+        shop_id: Number(icdCreditForm.shop_id),
+        bill_no: icdCreditForm.bill_no,
+        bill_date: icdCreditForm.bill_date,
+        delivery_date: icdCreditForm.delivery_date,
+        bill_amt: Number(icdCreditForm.bill_amt),
+        paid_amt: Number(icdCreditForm.paid_amt || 0),
+        remarks: icdCreditForm.remarks,
+        created_by: authRole === "admin" ? "Admin" : "IT",
+      },
+    })
+
+    alert("ICD credit added")
+    setIcdCreditForm((current) => ({
+      ...current,
+      shop_id: "",
+      bill_no: "",
+      bill_amt: "",
+      paid_amt: "",
+      remarks: "",
+    }))
+    loadRecentIcdCredits()
   }
 
   const applyCurrentMonthFilter = () => {
@@ -439,6 +511,199 @@ export default function IT() {
       </div>
 
       <div className="rounded-[1.35rem] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold text-slate-900">Add ICD Credit</h3>
+            <p className="text-sm text-slate-500">Use this when ICD credit needs to be added directly without creating a dispatch.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowIcdCreditForm((current) => !current)}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
+          >
+            {showIcdCreditForm ? "Hide Form" : "Show Form"}
+          </button>
+        </div>
+
+        {showIcdCreditForm ? (
+          <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Beat</label>
+                <select
+                  value={icdCreditForm.beat}
+                  onChange={(e) => {
+                    const nextBeat = e.target.value
+                    setIcdCreditForm((current) => ({ ...current, beat: nextBeat, shop_id: "" }))
+                    loadIcdShops(nextBeat)
+                  }}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">All ICD beats</option>
+                  {icdBeats.map((beat) => (
+                    <option key={beat.id} value={beat.beat_value ?? beat.id}>
+                      {beat.name}{beat.route_name ? ` - ${beat.route_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2 xl:col-span-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">ICD Shop</label>
+                <select
+                  value={icdCreditForm.shop_id}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, shop_id: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Select ICD shop</option>
+                  {icdShops.map((shop) => (
+                    <option key={shop.shop_id} value={shop.shop_id}>
+                      {shop.shop}{shop.beat ? ` - ${shop.beat}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Bill No</label>
+                <input
+                  value={icdCreditForm.bill_no}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, bill_no: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Optional"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Bill Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={icdCreditForm.bill_amt}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, bill_amt: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Amount"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Paid Amount</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={icdCreditForm.paid_amt}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, paid_amt: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Optional"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Bill Date</label>
+                <input
+                  type="date"
+                  value={icdCreditForm.bill_date}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, bill_date: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Delivery Date</label>
+                <input
+                  type="date"
+                  value={icdCreditForm.delivery_date}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, delivery_date: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2 xl:col-span-4">
+                <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Remarks</label>
+                <textarea
+                  value={icdCreditForm.remarks}
+                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, remarks: e.target.value }))}
+                  className="min-h-[72px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                  placeholder="Optional note"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={saveIcdCredit}
+              className="mt-4 inline-flex h-[40px] items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Add ICD Credit
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-[1rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            The ICD credit form is hidden. Use Show Form when you need to add a new entry.
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 pt-4 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="font-semibold">Recent ICD Credits</h4>
+              <p className="text-sm text-gray-500">Latest 2 ICD credit rows added to the ledger.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={loadRecentIcdCredits}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
+              >
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRecentIcdCredits((current) => !current)}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
+              >
+                {showRecentIcdCredits ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          {!showRecentIcdCredits ? (
+            <div className="rounded-[1rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              Recent ICD credits are hidden. Use Show when you want to review the latest 2 entries.
+            </div>
+          ) : recentIcdCredits.length === 0 ? (
+            <p className="text-sm text-gray-500">No ICD credits found yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {recentIcdCredits.map((item) => (
+                <div key={item.bill_no} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.shop}</p>
+                      <p className="text-sm text-gray-500">{item.beat || "No beat"}</p>
+                      <p className="text-xs text-gray-500">
+                        Bill No: {item.bill_no} | Bill Date: {formatDate(item.bill_date)} | Delivery: {formatDate(item.delivery_date)}
+                      </p>
+                      {item.remarks ? (
+                        <p className="text-xs text-gray-500">Remarks: {item.remarks}</p>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-1 text-left md:text-right">
+                      <p className="text-sm text-gray-500">Bill {formatCurrency(item.bill_amt)}</p>
+                      <p className="text-sm text-gray-500">Paid {formatCurrency(item.paid_amt)}</p>
+                      <p className="font-semibold text-rose-600">Balance {formatCurrency(item.balance)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-[1.35rem] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
         <div className="space-y-1">
           <h3 className="text-lg font-semibold text-slate-900">Daily Stock Update</h3>
           <p className="text-sm text-slate-500">Capture today’s stock and keep the IT log up to date.</p>
@@ -568,159 +833,176 @@ export default function IT() {
 
       {canManageMoc ? (
         <div className="rounded-[1.35rem] border border-slate-200 bg-white p-6 shadow-sm space-y-5">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">MOC Closing Entry</h3>
-            <p className="text-sm text-gray-500">
-              Enter final sales and cumulative discount for {mocMeta.target_month}.
-              {authRole === "admin" && !mocMeta.allowed ? " Admin override is enabled." : ""}
-            </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">MOC Closing Entry</h3>
+              <p className="text-sm text-gray-500">
+                Enter final sales and cumulative discount for {mocMeta.target_month}.
+                {authRole === "admin" && !mocMeta.allowed ? " Admin override is enabled." : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMocSection((current) => !current)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
+            >
+              {showMocSection ? "Hide Section" : "Show Section"}
+            </button>
           </div>
 
-          {currentMocLocked ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              MOC entry already added for {mocMeta.target_month}. This cycle is now locked.
+          {!showMocSection ? (
+            <div className="rounded-[1rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              MOC closing is hidden. Use Show Section when you want to enter or review MOC details.
             </div>
-          ) : null}
-
-          <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {authRole === "admin" ? (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">MOC Month</label>
-                <input
-                  type="month"
-                  value={mocForm.moc_month}
-                  onChange={(e) => setMocForm((current) => ({ ...current, moc_month: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
-                  disabled={currentMocLocked}
-                />
-              </div>
-            ) : null}
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Total Sales</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={mocForm.total_sales}
-                onChange={(e) => setMocForm((current) => ({ ...current, total_sales: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
-                placeholder="Enter total sales"
-                disabled={currentMocLocked}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Cumulative Discount</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={mocForm.total_discount}
-                onChange={(e) => setMocForm((current) => ({ ...current, total_discount: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
-                placeholder="Enter total discount"
-                disabled={currentMocLocked}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Total ICD Sales</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={mocForm.total_icd_sales}
-                onChange={(e) => setMocForm((current) => ({ ...current, total_icd_sales: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
-                placeholder="Enter total ICD sales"
-                disabled={currentMocLocked}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">MOC Closing Stock Value</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={mocForm.closing_stock_value}
-                onChange={(e) => setMocForm((current) => ({ ...current, closing_stock_value: e.target.value }))}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
-                placeholder="Enter MOC closing stock value"
-                disabled={currentMocLocked}
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <button
-                type="button"
-                onClick={saveMoc}
-                disabled={currentMocLocked}
-                className="inline-flex h-[42px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2 font-semibold text-white disabled:bg-slate-300 disabled:text-slate-600"
-              >
-                {currentMocLocked ? "MOC Entry Already Added" : "Save MOC"}
-              </button>
-            </div>
-          </div>
-          </div>
-
-          {authRole === "admin" ? (
-            <div className="border-t border-slate-200 pt-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-semibold">MOC History</h4>
-                  <p className="text-sm text-gray-500">View and reuse past MOC entries.</p>
+          ) : (
+            <>
+              {currentMocLocked ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  MOC entry already added for {mocMeta.target_month}. This cycle is now locked.
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowMocHistory((current) => !current)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
-                >
-                  {showMocHistory ? "Hide History" : "View History"}
-                </button>
+              ) : null}
+
+              <div className="rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                {authRole === "admin" ? (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">MOC Month</label>
+                    <input
+                      type="month"
+                      value={mocForm.moc_month}
+                      onChange={(e) => setMocForm((current) => ({ ...current, moc_month: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                      disabled={currentMocLocked}
+                    />
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Total Sales</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mocForm.total_sales}
+                    onChange={(e) => setMocForm((current) => ({ ...current, total_sales: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                    placeholder="Enter total sales"
+                    disabled={currentMocLocked}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Cumulative Discount</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mocForm.total_discount}
+                    onChange={(e) => setMocForm((current) => ({ ...current, total_discount: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                    placeholder="Enter total discount"
+                    disabled={currentMocLocked}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Total ICD Sales</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mocForm.total_icd_sales}
+                    onChange={(e) => setMocForm((current) => ({ ...current, total_icd_sales: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                    placeholder="Enter total ICD sales"
+                    disabled={currentMocLocked}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">MOC Closing Stock Value</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mocForm.closing_stock_value}
+                    onChange={(e) => setMocForm((current) => ({ ...current, closing_stock_value: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+                    placeholder="Enter MOC closing stock value"
+                    disabled={currentMocLocked}
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <button
+                    type="button"
+                    onClick={saveMoc}
+                    disabled={currentMocLocked}
+                    className="inline-flex h-[42px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2 font-semibold text-white disabled:bg-slate-300 disabled:text-slate-600"
+                  >
+                    {currentMocLocked ? "MOC Entry Already Added" : "Save MOC"}
+                  </button>
+                </div>
+              </div>
               </div>
 
-              {showMocHistory ? (
-                mocHistory.length === 0 ? (
-                  <p className="text-sm text-gray-500">No MOC history available yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {mocHistory.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() =>
-                          setMocForm({
-                            moc_month: item.moc_month.slice(0, 7),
-                            total_sales: item.total_sales,
-                            total_icd_sales: item.total_icd_sales ?? "",
-                            total_discount: item.total_discount,
-                            closing_stock_value: item.closing_stock_value ?? "",
-                          })
-                        }
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-left"
-                      >
-                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                          <div>
-                            <p className="font-semibold">{item.target_month}</p>
-                            <p className="text-sm text-gray-500">Click to edit this MOC</p>
-                          </div>
-                          <div className="text-left md:text-right">
-                            <p className="text-sm text-gray-500">Sales {Number(item.total_sales).toLocaleString("en-IN")}</p>
-                            <p className="text-sm text-gray-500">ICD Sales {Number(item.total_icd_sales || 0).toLocaleString("en-IN")}</p>
-                            <p className="text-sm text-gray-500">Discount {Number(item.total_discount).toLocaleString("en-IN")}</p>
-                            <p className="text-sm text-gray-500">Closing Stock {Number(item.closing_stock_value || 0).toLocaleString("en-IN")}</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+              {authRole === "admin" ? (
+                <div className="border-t border-slate-200 pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold">MOC History</h4>
+                      <p className="text-sm text-gray-500">View and reuse past MOC entries.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowMocHistory((current) => !current)}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm"
+                    >
+                      {showMocHistory ? "Hide History" : "View History"}
+                    </button>
                   </div>
-                )
+
+                  {showMocHistory ? (
+                    mocHistory.length === 0 ? (
+                      <p className="text-sm text-gray-500">No MOC history available yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {mocHistory.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() =>
+                              setMocForm({
+                                moc_month: item.moc_month.slice(0, 7),
+                                total_sales: item.total_sales,
+                                total_icd_sales: item.total_icd_sales ?? "",
+                                total_discount: item.total_discount,
+                                closing_stock_value: item.closing_stock_value ?? "",
+                              })
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4 text-left"
+                          >
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="font-semibold">{item.target_month}</p>
+                                <p className="text-sm text-gray-500">Click to edit this MOC</p>
+                              </div>
+                              <div className="text-left md:text-right">
+                                <p className="text-sm text-gray-500">Sales {Number(item.total_sales).toLocaleString("en-IN")}</p>
+                                <p className="text-sm text-gray-500">ICD Sales {Number(item.total_icd_sales || 0).toLocaleString("en-IN")}</p>
+                                <p className="text-sm text-gray-500">Discount {Number(item.total_discount).toLocaleString("en-IN")}</p>
+                                <p className="text-sm text-gray-500">Closing Stock {Number(item.closing_stock_value || 0).toLocaleString("en-IN")}</p>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  ) : null}
+                </div>
               ) : null}
-            </div>
-          ) : null}
+            </>
+          )}
         </div>
       ) : null}
 

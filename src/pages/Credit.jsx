@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import axios from "axios"
 import API_BASE from "../config/api"
+import { useLocation } from "react-router-dom"
+
+const BUSINESS_OPTIONS = [
+  { value: "mainline", label: "Mainline" },
+  { value: "icd", label: "ICD" },
+]
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-IN", {
@@ -32,21 +38,53 @@ function agePillStyle(days) {
   }
 }
 
-export default function Credit() {
+export default function Credit({ auth }) {
+  const location = useLocation()
   const [data, setData] = useState([])
   const [beats, setBeats] = useState([])
+  const initialBusinessType = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    const requestedBusiness = params.get("business")
+    if (requestedBusiness === "icd" || requestedBusiness === "mainline") {
+      return requestedBusiness
+    }
+    return auth?.business_type === "icd" ? "icd" : "mainline"
+  }, [auth?.business_type, location.search])
+  const [businessType, setBusinessType] = useState(initialBusinessType)
   const [selectedBeat, setSelectedBeat] = useState("")
   const [search, setSearch] = useState("")
   const [expandedShopId, setExpandedShopId] = useState(null)
   const [shopBillsById, setShopBillsById] = useState({})
+  const [paymentDraftsByShopId, setPaymentDraftsByShopId] = useState({})
   const [loadingBillsShopId, setLoadingBillsShopId] = useState(null)
   const [loadingSummary, setLoadingSummary] = useState(true)
+  const [submittingShopId, setSubmittingShopId] = useState(null)
+  const isSalesman = auth?.role === "salesman"
 
   useEffect(() => {
     setLoadingSummary(true)
-    axios.get(`${API_BASE}/admin/credit`).then((res) => setData(res.data)).finally(() => setLoadingSummary(false))
-    axios.get(`${API_BASE}/routes`).then((res) => setBeats(res.data))
-  }, [])
+    setExpandedShopId(null)
+    setShopBillsById({})
+    setSelectedBeat("")
+    axios
+      .get(`${API_BASE}/admin/credit`, { params: { business_type: businessType } })
+      .then((res) => setData(res.data))
+      .finally(() => setLoadingSummary(false))
+    axios
+      .get(`${API_BASE}/routes`, { params: { business_type: businessType } })
+      .then((res) => setBeats(res.data))
+  }, [businessType])
+
+  useEffect(() => {
+    if (!isSalesman) {
+      return
+    }
+    setBusinessType("icd")
+  }, [isSalesman])
+
+  useEffect(() => {
+    setBusinessType(initialBusinessType)
+  }, [initialBusinessType])
 
   const toggleShop = async (shopId) => {
     if (expandedShopId === shopId) {
@@ -61,7 +99,9 @@ export default function Credit() {
 
     setLoadingBillsShopId(shopId)
     try {
-      const response = await axios.get(`${API_BASE}/admin/credit/${shopId}/bills`)
+      const response = await axios.get(`${API_BASE}/admin/credit/${shopId}/bills`, {
+        params: { business_type: businessType },
+      })
       setShopBillsById((current) => ({
         ...current,
         [shopId]: response.data.bills || [],
@@ -96,6 +136,34 @@ export default function Credit() {
     [filteredData]
   )
 
+  const submitPaymentRequest = async (shop) => {
+    const rawAmount = paymentDraftsByShopId[shop.shop_id] || ""
+    const amount = Number(rawAmount)
+    if (!amount || amount <= 0) {
+      alert("Please enter a valid payment amount")
+      return
+    }
+
+    setSubmittingShopId(shop.shop_id)
+    try {
+      await axios.post(`${API_BASE}/payments/requests`, null, {
+        params: {
+          shop_id: shop.shop_id,
+          amount,
+          requested_by: auth?.label || auth?.username || "Salesman",
+          business_type: businessType,
+        },
+      })
+      setPaymentDraftsByShopId((current) => ({
+        ...current,
+        [shop.shop_id]: "",
+      }))
+      alert("Payment request sent to admin")
+    } finally {
+      setSubmittingShopId(null)
+    }
+  }
+
   return (
     <div className="bg-white p-6 rounded-xl shadow space-y-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -115,6 +183,29 @@ export default function Credit() {
           <h2 className="font-semibold text-lg">Credit Report</h2>
 
           <div className="grid gap-3 md:grid-cols-2">
+            {!isSalesman ? (
+              <div className="md:col-span-2 flex flex-wrap gap-2">
+                {BUSINESS_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setBusinessType(option.value)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      businessType === option.value
+                        ? "bg-slate-950 text-white"
+                        : "border border-slate-300 bg-white text-slate-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="md:col-span-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                ICD credit view only. Raise collected payments here for admin confirmation.
+              </div>
+            )}
+
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -201,6 +292,38 @@ export default function Credit() {
                         <p className="font-semibold text-sm text-red-600">{formatCurrency(bill.balance)}</p>
                       </div>
                     ))}
+
+                    {isSalesman ? (
+                      <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">Collected Payment Amount</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={paymentDraftsByShopId[shop.shop_id] || ""}
+                              onChange={(e) =>
+                                setPaymentDraftsByShopId((current) => ({
+                                  ...current,
+                                  [shop.shop_id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded border border-slate-300 px-3 py-2"
+                              placeholder="Enter collected amount"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => submitPaymentRequest(shop)}
+                            disabled={submittingShopId === shop.shop_id}
+                            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                          >
+                            {submittingShopId === shop.shop_id ? "Sending..." : "Send To Admin"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>

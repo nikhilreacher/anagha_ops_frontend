@@ -2,6 +2,11 @@ import { useEffect, useState } from "react"
 import axios from "axios"
 import API_BASE from "../config/api"
 
+const BUSINESS_OPTIONS = [
+  { value: "mainline", label: "Mainline" },
+  { value: "icd", label: "ICD" },
+]
+
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -44,18 +49,24 @@ function getNavigationUrl(shop) {
   return `https://www.google.com/maps/search/?api=1&query=${query}`
 }
 
-export default function Delivery() {
+export default function Delivery({ auth }) {
+  const lockedBusinessType = auth?.role === "delivery" ? auth?.business_type || "mainline" : null
   const [dispatches, setDispatches] = useState([])
+  const [businessType, setBusinessType] = useState(lockedBusinessType || "mainline")
   const [selectedDispatchId, setSelectedDispatchId] = useState(null)
   const [shops, setShops] = useState([])
   const [expandedShopId, setExpandedShopId] = useState(null)
   const [loadingDispatchId, setLoadingDispatchId] = useState(null)
 
   useEffect(() => {
-    axios.get(`${API_BASE}/dispatch`).then((res) => {
+    setSelectedDispatchId(null)
+    setShops([])
+    setExpandedShopId(null)
+    setLoadingDispatchId(null)
+    axios.get(`${API_BASE}/dispatch`, { params: { business_type: businessType } }).then((res) => {
       setDispatches(res.data.filter((dispatch) => dispatch.status === "active"))
     })
-  }, [])
+  }, [businessType])
 
   const openDispatch = async (dispatchId) => {
     if (selectedDispatchId === dispatchId) {
@@ -71,7 +82,9 @@ export default function Delivery() {
     setShops([])
     setExpandedShopId(null)
     try {
-      const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`)
+      const response = await axios.get(`${API_BASE}/dispatch/${dispatchId}/shops`, {
+        params: { business_type: businessType },
+      })
       setShops(response.data.filter((shop) => shop.outstanding > 0))
     } finally {
       setLoadingDispatchId(null)
@@ -82,7 +95,31 @@ export default function Delivery() {
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow space-y-4">
         <div className="flex justify-between items-center">
-          <h2 className="font-semibold text-lg">Current Dispatches</h2>
+          <div className="space-y-2">
+            <h2 className="font-semibold text-lg">Current Dispatches</h2>
+            {!lockedBusinessType ? (
+              <div className="flex flex-wrap gap-2">
+                {BUSINESS_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setBusinessType(option.value)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      businessType === option.value
+                        ? "bg-slate-950 text-white"
+                        : "border border-slate-300 bg-white text-slate-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Showing {lockedBusinessType === "icd" ? "ICD" : "Mainline"} delivery runs only.
+              </p>
+            )}
+          </div>
           <p className="text-sm text-gray-500">{dispatches.length} active</p>
         </div>
 
@@ -109,7 +146,7 @@ export default function Delivery() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 text-sm md:text-right">
+                  <div className={`grid gap-4 text-sm md:text-right ${businessType === "icd" ? "grid-cols-2" : "grid-cols-3"}`}>
                     <div>
                       <p className="text-gray-500">Bills</p>
                       <p className="font-semibold">{dispatch.total_bills}</p>
@@ -118,10 +155,12 @@ export default function Delivery() {
                       <p className="text-gray-500">Cases</p>
                       <p className="font-semibold">{dispatch.total_cases}</p>
                     </div>
-                    <div>
-                      <p className="text-gray-500">Star Bags/Boxes</p>
-                      <p className="font-semibold">{dispatch.star_bags_boxes}</p>
-                    </div>
+                    {businessType !== "icd" ? (
+                      <div>
+                        <p className="text-gray-500">Star Bags/Boxes</p>
+                        <p className="font-semibold">{dispatch.star_bags_boxes}</p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 {loadingDispatchId === dispatch.id ? (
