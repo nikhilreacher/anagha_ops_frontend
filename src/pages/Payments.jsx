@@ -34,6 +34,10 @@ function formatDate(value) {
   })
 }
 
+function safeText(value, fallback = "") {
+  return typeof value === "string" ? value : fallback
+}
+
 export default function Payments({ auth }) {
   const [beats, setBeats] = useState([])
   const [shops, setShops] = useState([])
@@ -46,8 +50,11 @@ export default function Payments({ auth }) {
   const [loadingRequests, setLoadingRequests] = useState(false)
   const [processingRequestId, setProcessingRequestId] = useState(null)
   const [selectedShopBills, setSelectedShopBills] = useState([])
+  const [recentPayments, setRecentPayments] = useState([])
   const [loadingSelectedShopBills, setLoadingSelectedShopBills] = useState(false)
+  const [loadingRecentPayments, setLoadingRecentPayments] = useState(false)
   const [showSelectedShopBills, setShowSelectedShopBills] = useState(false)
+  const [showRecentPayments, setShowRecentPayments] = useState(true)
 
   const loadRoutes = async (nextBusinessType) => {
     const response = await axios.get(`${API_BASE}/routes`, {
@@ -68,6 +75,38 @@ export default function Payments({ auth }) {
     }
   }
 
+  const loadSelectedShopBills = async (shopId, nextBusinessType) => {
+    if (!shopId) {
+      setSelectedShopBills([])
+      return
+    }
+    setLoadingSelectedShopBills(true)
+    try {
+      const response = await axios.get(`${API_BASE}/admin/credit/${shopId}/bills`, {
+        params: { business_type: nextBusinessType },
+      })
+      setSelectedShopBills(response.data?.bills || [])
+    } finally {
+      setLoadingSelectedShopBills(false)
+    }
+  }
+
+  const loadRecentPayments = async (shopId, nextBusinessType) => {
+    if (!shopId) {
+      setRecentPayments([])
+      return
+    }
+    setLoadingRecentPayments(true)
+    try {
+      const response = await axios.get(`${API_BASE}/payments/history/${shopId}`, {
+        params: { business_type: nextBusinessType, limit: 2 },
+      })
+      setRecentPayments(response.data?.history || [])
+    } finally {
+      setLoadingRecentPayments(false)
+    }
+  }
+
   useEffect(() => {
     setSelectedBeat("")
     setSelectedShopId("")
@@ -81,7 +120,9 @@ export default function Payments({ auth }) {
     if (!selectedBeat) {
       setShops([])
       setSelectedShopBills([])
+      setRecentPayments([])
       setShowSelectedShopBills(false)
+      setShowRecentPayments(true)
       return
     }
 
@@ -95,20 +136,16 @@ export default function Payments({ auth }) {
   useEffect(() => {
     if (!selectedShopId) {
       setSelectedShopBills([])
+      setRecentPayments([])
       setShowSelectedShopBills(false)
+      setShowRecentPayments(true)
       return
     }
 
-    setLoadingSelectedShopBills(true)
-    axios
-      .get(`${API_BASE}/admin/credit/${selectedShopId}/bills`, {
-        params: { business_type: businessType },
-      })
-      .then((res) => {
-        setSelectedShopBills(res.data?.bills || [])
-        setShowSelectedShopBills(true)
-      })
-      .finally(() => setLoadingSelectedShopBills(false))
+    loadSelectedShopBills(selectedShopId, businessType)
+    loadRecentPayments(selectedShopId, businessType)
+    setShowSelectedShopBills(true)
+    setShowRecentPayments(true)
   }, [selectedShopId, businessType])
 
   const selectedShop = useMemo(
@@ -270,7 +307,7 @@ export default function Payments({ auth }) {
                     <option value="">{selectedBeat ? "Select shop" : "Select beat first"}</option>
                     {shops.map((shop) => (
                       <option key={shop.shop_id} value={shop.shop_id}>
-                        {shop.shop}
+                        {safeText(shop.shop, "Unnamed shop")}
                       </option>
                     ))}
                   </select>
@@ -279,9 +316,8 @@ export default function Payments({ auth }) {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">Collection Amount</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 px-3 py-2"
@@ -289,6 +325,14 @@ export default function Payments({ auth }) {
                   />
                 </div>
               </div>
+
+              <button
+                onClick={submit}
+                disabled={submitting}
+                className="mt-5 inline-flex min-w-[200px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {submitting ? "Submitting..." : "Record Collection"}
+              </button>
 
               {selectedShop ? (
                 <div className="mt-5 rounded-[1rem] border border-slate-200 bg-slate-50 p-4">
@@ -304,13 +348,85 @@ export default function Payments({ auth }) {
                       </div>
                       <button
                         type="button"
+                        onClick={() => loadRecentPayments(selectedShopId, businessType)}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                      >
+                        Refresh Payments
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setShowSelectedShopBills((current) => !current)}
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
                       >
                         {showSelectedShopBills ? "Hide Bills" : "View Bills"}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRecentPayments((current) => !current)}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                      >
+                        {showRecentPayments ? "Hide Payments" : "View Payments"}
+                      </button>
                     </div>
                   </div>
+
+                  {showRecentPayments ? (
+                    <div className="mt-4 border-t border-slate-200 pt-4">
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold text-slate-900">Recent Payments</p>
+                        <p className="text-xs text-slate-500">Last 2 recorded payments for this shop.</p>
+                      </div>
+
+                      {loadingRecentPayments ? (
+                        <p className="text-sm text-slate-500">Loading payment history...</p>
+                      ) : recentPayments.length === 0 ? (
+                        <p className="text-sm text-slate-500">No recorded payments found for this shop yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {recentPayments.map((payment) => (
+                            <div
+                              key={payment.paid_at || `${payment.amount}`}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-3"
+                            >
+                              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    Paid on {formatTimestamp(payment.paid_at)}
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    {payment.bills.length} bill{payment.bills.length === 1 ? "" : "s"} adjusted
+                                  </p>
+                                </div>
+                                <p className="font-semibold text-emerald-700">{formatCurrency(payment.amount)}</p>
+                              </div>
+
+                              <div className="mt-3 space-y-2">
+                                {payment.bills.map((bill) => (
+                                  <div
+                                    key={`${payment.paid_at}-${bill.bill_no}`}
+                                    className="flex flex-col gap-1 rounded-md bg-slate-50 px-3 py-2 md:flex-row md:items-center md:justify-between"
+                                  >
+                                    <div>
+                                      <p className="text-sm font-medium text-slate-900">{bill.bill_no}</p>
+                                      <p className="text-xs text-slate-500">Bill Date: {formatDate(bill.bill_date)}</p>
+                                    </div>
+                                    <div className="text-left md:text-right">
+                                      <p className="text-sm font-medium text-emerald-700">
+                                        Applied {formatCurrency(bill.applied_amount)}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        Balance left {formatCurrency(bill.remaining_balance)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
 
                   {showSelectedShopBills ? (
                     <div className="mt-4 border-t border-slate-200 pt-4">
@@ -343,13 +459,6 @@ export default function Payments({ auth }) {
                 </div>
               ) : null}
 
-              <button
-                onClick={submit}
-                disabled={submitting}
-                className="mt-5 inline-flex min-w-[200px] items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
-              >
-                {submitting ? "Submitting..." : "Record Collection"}
-              </button>
             </div>
 
             {businessType === "icd" ? (

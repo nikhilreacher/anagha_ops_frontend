@@ -26,6 +26,12 @@ function formatCurrency(value) {
   }).format(value || 0)
 }
 
+function getShopDisplayName(shop) {
+  if (!shop) return "Unnamed shop"
+  const value = typeof shop.shop === "string" ? shop.shop.trim() : ""
+  return value || "Unnamed shop"
+}
+
 function getInitialCreditForm() {
   return {
     shop_id: "",
@@ -504,7 +510,7 @@ export default function Dispatch({ auth }) {
               const normalizedShopSearch = creditForm.shop_search.trim().toLowerCase()
               const filteredDispatchShops = normalizedShopSearch
                 ? dispatchShops.filter((shop) =>
-                    shop.shop.toLowerCase().includes(normalizedShopSearch)
+                    getShopDisplayName(shop).toLowerCase().includes(normalizedShopSearch)
                   )
                 : dispatchShops
               const selectedCreditShop = dispatchShops.find(
@@ -652,7 +658,7 @@ export default function Dispatch({ auth }) {
                                     <div key={shop.shop_id} className="rounded-[1rem] border border-slate-200 bg-white/90 p-4 shadow-sm">
                                       <div className="flex justify-between items-start gap-4">
                                         <div>
-                                          <p className="font-semibold">{shop.shop}</p>
+                                          <p className="font-semibold">{getShopDisplayName(shop)}</p>
                                           <p className="text-sm text-gray-500">{shop.phone || "No phone"}</p>
                                         </div>
 
@@ -798,13 +804,13 @@ export default function Dispatch({ auth }) {
                                                     ...(current[dispatch.id] || getInitialCreditForm()),
                                                     ...creditForm,
                                                     shop_id: String(shop.shop_id),
-                                                    shop_search: shop.shop,
+                                                    shop_search: getShopDisplayName(shop),
                                                   },
                                                 }))
                                               }
                                               className="block w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-slate-50"
                                             >
-                                              <span>{shop.shop}</span>
+                                              <span>{getShopDisplayName(shop)}</span>
                                               {shop.is_temporary ? (
                                                 <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                                                   Temporary
@@ -826,7 +832,7 @@ export default function Dispatch({ auth }) {
 
                                     {selectedCreditShop ? (
                                       <p className="text-xs text-emerald-700">
-                                        Selected shop: {selectedCreditShop.shop}
+                                        Selected shop: {getShopDisplayName(selectedCreditShop)}
                                         {selectedCreditShop.is_temporary ? " (Temporary)" : ""}
                                       </p>
                                     ) : creditForm.shop_search.trim() ? (

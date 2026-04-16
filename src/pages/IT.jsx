@@ -149,6 +149,10 @@ function getTaskLabel(taskType) {
   return taskType === "expiry" ? "Expiry" : "Return"
 }
 
+function safeText(value, fallback = "") {
+  return typeof value === "string" ? value : fallback
+}
+
 export default function IT() {
   const [authRole, setAuthRole] = useState("")
   const [returns, setReturns] = useState([])
@@ -558,7 +562,7 @@ export default function IT() {
                   <option value="">Select ICD shop</option>
                   {icdShops.map((shop) => (
                     <option key={shop.shop_id} value={shop.shop_id}>
-                      {shop.shop}{shop.beat ? ` - ${shop.beat}` : ""}
+                      {safeText(shop.shop, "Unnamed shop")}{safeText(shop.beat) ? ` - ${safeText(shop.beat)}` : ""}
                     </option>
                   ))}
                 </select>

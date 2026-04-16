@@ -38,6 +38,22 @@ function agePillStyle(days) {
   }
 }
 
+function safeText(value, fallback = "") {
+  return typeof value === "string" ? value : fallback
+}
+
+function getShopDisplayName(shop) {
+  return safeText(shop?.shop, "Unnamed shop")
+}
+
+function getBeatDisplayName(shop) {
+  return safeText(shop?.beat, "")
+}
+
+function currentDateInput() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export default function Credit({ auth }) {
   const location = useLocation()
   const [data, setData] = useState([])
@@ -56,23 +72,80 @@ export default function Credit({ auth }) {
   const [expandedShopId, setExpandedShopId] = useState(null)
   const [shopBillsById, setShopBillsById] = useState({})
   const [paymentDraftsByShopId, setPaymentDraftsByShopId] = useState({})
+  const [followupDraftsByShopId, setFollowupDraftsByShopId] = useState({})
+  const [followupNoteDraftsByShopId, setFollowupNoteDraftsByShopId] = useState({})
+  const [activeFollowupsByShopId, setActiveFollowupsByShopId] = useState({})
+  const [todayFollowups, setTodayFollowups] = useState([])
   const [loadingBillsShopId, setLoadingBillsShopId] = useState(null)
   const [loadingSummary, setLoadingSummary] = useState(true)
   const [submittingShopId, setSubmittingShopId] = useState(null)
+  const [savingFollowupShopId, setSavingFollowupShopId] = useState(null)
+  const [loadingTodayFollowups, setLoadingTodayFollowups] = useState(false)
   const isSalesman = auth?.role === "salesman"
 
+  const loadFollowups = async () => {
+    if (!isSalesman) {
+      setTodayFollowups([])
+      setActiveFollowupsByShopId({})
+      return
+    }
+
+    const [allResponse, todayResponse] = await Promise.all([
+      axios.get(`${API_BASE}/payments/followups`, {
+        params: { business_type: businessType, scope: "all" },
+      }),
+      axios.get(`${API_BASE}/payments/followups`, {
+        params: { business_type: businessType, scope: "today" },
+      }),
+    ])
+
+    const allFollowups = allResponse.data || []
+    const byShopId = {}
+    const dateDrafts = {}
+    const noteDrafts = {}
+    allFollowups.forEach((item) => {
+      byShopId[item.shop_id] = item
+      dateDrafts[item.shop_id] = item.followup_date || currentDateInput()
+      noteDrafts[item.shop_id] = item.note || ""
+    })
+
+    setActiveFollowupsByShopId(byShopId)
+    setTodayFollowups(todayResponse.data || [])
+    setFollowupDraftsByShopId((current) => ({ ...dateDrafts, ...current }))
+    setFollowupNoteDraftsByShopId((current) => ({ ...noteDrafts, ...current }))
+  }
+
+  const refreshFollowups = async () => {
+    setLoadingTodayFollowups(true)
+    try {
+      await loadFollowups()
+    } finally {
+      setLoadingTodayFollowups(false)
+    }
+  }
+
   useEffect(() => {
-    setLoadingSummary(true)
-    setExpandedShopId(null)
-    setShopBillsById({})
-    setSelectedBeat("")
-    axios
-      .get(`${API_BASE}/admin/credit`, { params: { business_type: businessType } })
-      .then((res) => setData(res.data))
-      .finally(() => setLoadingSummary(false))
-    axios
-      .get(`${API_BASE}/routes`, { params: { business_type: businessType } })
-      .then((res) => setBeats(res.data))
+    const loadPage = async () => {
+      setLoadingSummary(true)
+      setExpandedShopId(null)
+      setShopBillsById({})
+      setSelectedBeat("")
+      try {
+        const [creditResponse, beatsResponse] = await Promise.all([
+          axios.get(`${API_BASE}/admin/credit`, { params: { business_type: businessType } }),
+          axios.get(`${API_BASE}/routes`, { params: { business_type: businessType } }),
+        ])
+        setData(creditResponse.data)
+        setBeats(beatsResponse.data)
+        if (isSalesman) {
+          await refreshFollowups()
+        }
+      } finally {
+        setLoadingSummary(false)
+      }
+    }
+
+    loadPage()
   }, [businessType])
 
   useEffect(() => {
@@ -112,12 +185,13 @@ export default function Credit({ auth }) {
   }
 
   const filteredData = useMemo(() => {
+    const normalizedSearch = search.toLowerCase()
     return data.filter((shop) => {
       const matchesBeat = !selectedBeat || shop.beat === selectedBeat
       const matchesSearch =
         !search ||
-        shop.shop.toLowerCase().includes(search.toLowerCase()) ||
-        shop.beat.toLowerCase().includes(search.toLowerCase())
+        getShopDisplayName(shop).toLowerCase().includes(normalizedSearch) ||
+        getBeatDisplayName(shop).toLowerCase().includes(normalizedSearch)
       return matchesBeat && matchesSearch
     })
   }, [data, selectedBeat, search])
@@ -158,11 +232,47 @@ export default function Credit({ auth }) {
         ...current,
         [shop.shop_id]: "",
       }))
+      await loadFollowups()
       alert("Payment request sent to admin")
     } finally {
       setSubmittingShopId(null)
     }
   }
+
+  const saveFollowup = async (shop) => {
+    const followupDate = followupDraftsByShopId[shop.shop_id] || currentDateInput()
+    const note = followupNoteDraftsByShopId[shop.shop_id] || ""
+    if (!followupDate) {
+      alert("Please select a follow-up date")
+      return
+    }
+
+    setSavingFollowupShopId(shop.shop_id)
+    try {
+      await axios.post(`${API_BASE}/payments/followups`, null, {
+        params: {
+          shop_id: shop.shop_id,
+          followup_date: followupDate,
+          note,
+          created_by: auth?.label || auth?.username || "Salesman",
+          business_type: businessType,
+        },
+      })
+      await loadFollowups()
+      alert("Follow-up date saved")
+    } finally {
+      setSavingFollowupShopId(null)
+    }
+  }
+
+  const todayFollowupItems = useMemo(() => {
+    return todayFollowups
+      .map((followup) => ({
+        ...followup,
+        outstanding: data.find((shop) => shop.shop_id === followup.shop_id)?.outstanding || 0,
+      }))
+      .sort((a, b) => (b.outstanding || 0) - (a.outstanding || 0))
+  }, [data, todayFollowups])
 
   return (
     <div className="bg-white p-6 rounded-xl shadow space-y-4">
@@ -233,12 +343,61 @@ export default function Credit({ auth }) {
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
           Loading credit summary...
         </div>
-      ) : filteredData.length === 0 ? (
+      ) : isSalesman ? (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Today's Follow Ups</h3>
+              <p className="text-sm text-slate-500">Shops that asked for today's date for payment follow-up.</p>
+            </div>
+            <button
+              type="button"
+              onClick={refreshFollowups}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loadingTodayFollowups ? (
+            <p className="text-sm text-slate-500">Loading today's follow-ups...</p>
+          ) : todayFollowupItems.length === 0 ? (
+            <p className="text-sm text-slate-500">No follow-ups due today.</p>
+          ) : (
+            <div className="space-y-2">
+              {todayFollowupItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => toggleShop(item.shop_id)}
+                  className="w-full rounded-lg border border-sky-200 bg-white px-4 py-3 text-left hover:bg-sky-50"
+                >
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.shop}</p>
+                      <p className="text-sm text-slate-500">{item.beat || "No beat"}</p>
+                      <p className="text-xs text-slate-500">
+                        Follow-up date: {item.followup_date}{item.note ? ` | ${item.note}` : ""}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-red-600">{formatCurrency(item.outstanding)}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {!loadingSummary && filteredData.length === 0 ? (
         <p className="text-sm text-gray-500">No credit data found for the selected beat.</p>
+      ) : filteredData.length === 0 ? (
+        null
       ) : (
         <div className="space-y-3">
           {filteredData.map((shop) => {
             const isExpanded = expandedShopId === shop.shop_id
+            const activeFollowup = activeFollowupsByShopId[shop.shop_id]
 
             return (
               <div key={shop.shop_id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
@@ -249,7 +408,7 @@ export default function Credit({ auth }) {
                 >
                   <div className="space-y-1 text-left flex flex-col items-start">
                     <div className="flex items-center gap-2">
-                      <p className="font-semibold leading-tight">{shop.shop}</p>
+                      <p className="font-semibold leading-tight">{getShopDisplayName(shop)}</p>
                       <span
                         className="inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-semibold"
                         style={agePillStyle(shop.max_age)}
@@ -258,7 +417,7 @@ export default function Credit({ auth }) {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 leading-none pl-0 ml-0">
-                      {shop.beat}
+                      {getBeatDisplayName(shop) || "No beat"}
                     </p>
                   </div>
 
@@ -294,14 +453,52 @@ export default function Credit({ auth }) {
                     ))}
 
                     {isSalesman ? (
-                      <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3">
-                        <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                      <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">Follow-Up Date</label>
+                            <input
+                              type="date"
+                              value={followupDraftsByShopId[shop.shop_id] || activeFollowup?.followup_date || currentDateInput()}
+                              onChange={(e) =>
+                                setFollowupDraftsByShopId((current) => ({
+                                  ...current,
+                                  [shop.shop_id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded border border-slate-300 px-3 py-2"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">Follow-Up Note</label>
+                            <input
+                              type="text"
+                              value={followupNoteDraftsByShopId[shop.shop_id] ?? activeFollowup?.note ?? ""}
+                              onChange={(e) =>
+                                setFollowupNoteDraftsByShopId((current) => ({
+                                  ...current,
+                                  [shop.shop_id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded border border-slate-300 px-3 py-2"
+                              placeholder="Optional note like tomorrow evening"
+                            />
+                          </div>
+                        </div>
+
+                        {activeFollowup ? (
+                          <p className="text-xs text-sky-800">
+                            Active follow-up on {activeFollowup.followup_date}
+                            {activeFollowup.note ? ` | ${activeFollowup.note}` : ""}
+                          </p>
+                        ) : null}
+
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-700">Collected Payment Amount</label>
                             <input
-                              type="number"
-                              min="0"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={paymentDraftsByShopId[shop.shop_id] || ""}
                               onChange={(e) =>
                                 setPaymentDraftsByShopId((current) => ({
@@ -313,6 +510,14 @@ export default function Credit({ auth }) {
                               placeholder="Enter collected amount"
                             />
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => saveFollowup(shop)}
+                            disabled={savingFollowupShopId === shop.shop_id}
+                            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                          >
+                            {savingFollowupShopId === shop.shop_id ? "Saving..." : activeFollowup ? "Update Follow-Up" : "Save Follow-Up"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => submitPaymentRequest(shop)}

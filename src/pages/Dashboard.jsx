@@ -1800,9 +1800,8 @@ export default function Dashboard() {
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-gray-700">Amount</label>
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={expenseForm.amount}
                           onChange={(e) =>
                             setExpenseForm((current) => ({ ...current, amount: e.target.value }))
