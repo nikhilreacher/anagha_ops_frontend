@@ -181,19 +181,11 @@ export default function Payments({ auth }) {
 
       const applied = response.data.applied_amount || 0
       const unapplied = response.data.unapplied_amount || 0
-      const smsStatus = response.data?.sms
-      const smsMessage = smsStatus?.sent
-        ? " SMS sent to the shop owner."
-        : smsStatus?.reason === "sms_not_configured"
-          ? " SMS not sent because SMS is not configured yet."
-          : smsStatus?.reason === "invalid_shop_phone"
-            ? " SMS not sent because the shop phone number is missing or invalid."
-            : " SMS could not be sent."
 
       alert(
         unapplied > 0
-          ? `Payment recorded. Applied ${formatCurrency(applied)}. Unapplied ${formatCurrency(unapplied)}.${smsMessage}`
-          : `Payment recorded for ${formatCurrency(applied)}.${smsMessage}`
+          ? `Payment recorded. Applied ${formatCurrency(applied)}. Unapplied ${formatCurrency(unapplied)}.`
+          : `Payment recorded for ${formatCurrency(applied)}.`
       )
 
       setAmount("")

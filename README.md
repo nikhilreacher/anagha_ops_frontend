@@ -18,6 +18,7 @@ React + Vite frontend for the Anagha Operations system. This app provides role-b
 - Dashboard with expense tracking, employee management, advances, and salary calculation
 - Payment collection flow for shops with outstanding credit
 - Separate pages for credit, delivery, dispatch, and IT operations
+- ICD business workflows including credit, follow-ups, collections, and payment confirmations
 
 ## Project Structure
 
@@ -88,6 +89,8 @@ The frontend reads the backend base URL from `VITE_API_BASE_URL` in your `.env` 
 - Salary payments
 - Routes and beat data
 - Payment collection
+- Dispatch management
+- ICD credit and follow-up workflows
 
 ## Authentication and Roles
 
@@ -98,6 +101,7 @@ Supported role behavior in the frontend:
 - `admin`: full navigation across all pages
 - `delivery`: redirected to the Delivery page only
 - `it`: redirected to the IT page only
+- `salesman`: ICD credit and collection-oriented flows
 
 ## Available Routes
 
@@ -115,3 +119,21 @@ The visible routes depend on the logged-in user role.
 - `requirements.txt` is only a dependency reference note for this repo; frontend installation uses `npm`, not `pip`.
 - A Python virtual environment folder may exist locally for backend-related work, but it is not required to run this frontend.
 - The repo includes a `.gitignore` that excludes local dependencies, virtual environments, build output, logs, and editor files.
+
+## Next Features
+
+Potential no-cost additions we can explore later:
+
+- `Follow-up priority score`: show shops that are most urgent based on outstanding amount, bill age, and missed follow-up count.
+- `Today's action queue`: one salesman screen that combines due follow-ups, overdue follow-ups, and shops with highest collectible amount.
+- `Promise tracking`: when a shop says tomorrow or gives a date, track how many times they postponed before finally paying.
+- `Collection probability`: simple rule-based tag like `High chance`, `Medium`, or `Low` based on payment history and follow-up behavior.
+- `Beat-wise recovery summary`: for each beat, show outstanding, collected this week, due-today follow-ups, and overdue promises.
+- `Overdue follow-up alerts`: highlight shops where promised date has already passed.
+- `Salesman productivity metrics`: visits made, follow-ups recorded, payments collected, pending confirmations, and conversion rate.
+- `Payment behavior insights`: tags like `Pays on reminder`, `Needs repeat follow-up`, `Usually partial payment`, `Frequently delays`.
+- `Daily closing snapshot`: today's collections, new credit added, expenses, pending follow-ups, and pending payment confirmations.
+- `Risk shops list`: top shops likely to become bad debt based on aging and repeat postponements.
+- `Expense anomaly check`: flag expense types that are much higher than recent average.
+- `MOC helper warnings`: simple alerts if sales drop, discount spikes, or ICD share changes sharply.
+- `Data quality checks`: missing phone numbers, unnamed shops, duplicate-looking shops, blank beats, and suspicious entries.

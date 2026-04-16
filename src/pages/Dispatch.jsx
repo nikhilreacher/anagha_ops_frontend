@@ -282,16 +282,7 @@ export default function Dispatch({ auth }) {
         )
       )
       resetCreditForm(dispatch.id)
-      const smsStatus = response.data?.sms
-      if (smsStatus?.sent) {
-        alert("Credit entry added and SMS sent to the shop owner")
-      } else if (smsStatus?.reason === "sms_not_configured") {
-        alert("Credit entry added. SMS not sent because SMS is not configured yet")
-      } else if (smsStatus?.reason === "invalid_shop_phone") {
-        alert("Credit entry added. SMS not sent because the shop phone number is missing or invalid")
-      } else {
-        alert("Credit entry added. SMS could not be sent")
-      }
+      alert("Credit entry added")
     } finally {
       setIsSavingCredit(false)
     }
