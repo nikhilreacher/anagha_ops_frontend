@@ -50,6 +50,8 @@ export default function Payments({ auth }) {
   const [loadingRequests, setLoadingRequests] = useState(false)
   const [processingRequestId, setProcessingRequestId] = useState(null)
   const [selectedShopBills, setSelectedShopBills] = useState([])
+  const [allocationMode, setAllocationMode] = useState("oldest")
+  const [selectedBillNo, setSelectedBillNo] = useState("")
   const [recentPayments, setRecentPayments] = useState([])
   const [loadingSelectedShopBills, setLoadingSelectedShopBills] = useState(false)
   const [loadingRecentPayments, setLoadingRecentPayments] = useState(false)
@@ -78,6 +80,7 @@ export default function Payments({ auth }) {
   const loadSelectedShopBills = async (shopId, nextBusinessType) => {
     if (!shopId) {
       setSelectedShopBills([])
+      setSelectedBillNo("")
       return
     }
     setLoadingSelectedShopBills(true)
@@ -117,6 +120,7 @@ export default function Payments({ auth }) {
 
   useEffect(() => {
     setSelectedShopId("")
+    setSelectedBillNo("")
     if (!selectedBeat) {
       setShops([])
       setSelectedShopBills([])
@@ -136,6 +140,7 @@ export default function Payments({ auth }) {
   useEffect(() => {
     if (!selectedShopId) {
       setSelectedShopBills([])
+      setSelectedBillNo("")
       setRecentPayments([])
       setShowSelectedShopBills(false)
       setShowRecentPayments(true)
@@ -168,6 +173,10 @@ export default function Payments({ auth }) {
       alert("Please select beat, shop and amount")
       return
     }
+    if (allocationMode === "selected_bill" && !selectedBillNo) {
+      alert("Please select a bill")
+      return
+    }
 
     setSubmitting(true)
     try {
@@ -175,6 +184,8 @@ export default function Payments({ auth }) {
         params: {
           shop_id: Number(selectedShopId),
           amount: Number(amount),
+          allocation_mode: allocationMode,
+          bill_no: allocationMode === "selected_bill" ? selectedBillNo : "",
           business_type: businessType,
         },
       })
@@ -316,7 +327,37 @@ export default function Payments({ auth }) {
                     placeholder="Enter amount"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Apply Amount To</label>
+                  <select
+                    value={allocationMode}
+                    onChange={(e) => setAllocationMode(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                  >
+                    <option value="oldest">Oldest pending bills</option>
+                    <option value="selected_bill">Selected bill</option>
+                  </select>
+                </div>
               </div>
+
+              {allocationMode === "selected_bill" ? (
+                <div className="mt-4 space-y-2">
+                  <label className="text-sm font-medium text-gray-700">Select Bill</label>
+                  <select
+                    value={selectedBillNo}
+                    onChange={(e) => setSelectedBillNo(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                    disabled={!selectedShopId}
+                  >
+                    <option value="">{selectedShopId ? "Select bill" : "Select shop first"}</option>
+                    {selectedShopBills.map((bill) => (
+                      <option key={bill.bill_no} value={bill.bill_no}>
+                        {bill.bill_no} - {formatCurrency(bill.balance)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
 
               <button
                 onClick={submit}
@@ -483,6 +524,11 @@ export default function Payments({ auth }) {
                             <p className="text-sm text-slate-500">{request.beat || "No beat"}</p>
                             <p className="text-xs text-slate-500">
                               Raised by {request.requested_by} on {formatTimestamp(request.created_at)}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Applied to {request.allocation_mode === "selected_bill"
+                                ? request.bill_no || "selected bill"
+                                : "oldest pending bills"}
                             </p>
                           </div>
                           <div className="text-left md:text-right">

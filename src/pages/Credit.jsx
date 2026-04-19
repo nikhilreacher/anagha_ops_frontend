@@ -72,6 +72,8 @@ export default function Credit({ auth }) {
   const [expandedShopId, setExpandedShopId] = useState(null)
   const [shopBillsById, setShopBillsById] = useState({})
   const [paymentDraftsByShopId, setPaymentDraftsByShopId] = useState({})
+  const [paymentAllocationModeByShopId, setPaymentAllocationModeByShopId] = useState({})
+  const [selectedBillByShopId, setSelectedBillByShopId] = useState({})
   const [followupDraftsByShopId, setFollowupDraftsByShopId] = useState({})
   const [followupNoteDraftsByShopId, setFollowupNoteDraftsByShopId] = useState({})
   const [activeFollowupsByShopId, setActiveFollowupsByShopId] = useState({})
@@ -213,8 +215,14 @@ export default function Credit({ auth }) {
   const submitPaymentRequest = async (shop) => {
     const rawAmount = paymentDraftsByShopId[shop.shop_id] || ""
     const amount = Number(rawAmount)
+    const allocationMode = paymentAllocationModeByShopId[shop.shop_id] || "oldest"
+    const selectedBillNo = selectedBillByShopId[shop.shop_id] || ""
     if (!amount || amount <= 0) {
       alert("Please enter a valid payment amount")
+      return
+    }
+    if (allocationMode === "selected_bill" && !selectedBillNo) {
+      alert("Please select a bill")
       return
     }
 
@@ -224,6 +232,8 @@ export default function Credit({ auth }) {
         params: {
           shop_id: shop.shop_id,
           amount,
+          allocation_mode: allocationMode,
+          bill_no: allocationMode === "selected_bill" ? selectedBillNo : "",
           requested_by: auth?.label || auth?.username || "Salesman",
           business_type: businessType,
         },
@@ -493,7 +503,7 @@ export default function Credit({ auth }) {
                           </p>
                         ) : null}
 
-                        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
+                        <div className="grid gap-3 md:grid-cols-2">
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-700">Collected Payment Amount</label>
                             <input
@@ -510,6 +520,46 @@ export default function Credit({ auth }) {
                               placeholder="Enter collected amount"
                             />
                           </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">Apply Amount To</label>
+                            <select
+                              value={paymentAllocationModeByShopId[shop.shop_id] || "oldest"}
+                              onChange={(e) =>
+                                setPaymentAllocationModeByShopId((current) => ({
+                                  ...current,
+                                  [shop.shop_id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded border border-slate-300 px-3 py-2"
+                            >
+                              <option value="oldest">Oldest pending bills</option>
+                              <option value="selected_bill">Selected bill</option>
+                            </select>
+                          </div>
+                          {(paymentAllocationModeByShopId[shop.shop_id] || "oldest") === "selected_bill" ? (
+                            <div className="space-y-2 md:col-span-2">
+                              <label className="text-sm font-medium text-slate-700">Select Bill</label>
+                              <select
+                                value={selectedBillByShopId[shop.shop_id] || ""}
+                                onChange={(e) =>
+                                  setSelectedBillByShopId((current) => ({
+                                    ...current,
+                                    [shop.shop_id]: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded border border-slate-300 px-3 py-2"
+                              >
+                                <option value="">Select bill</option>
+                                {(shopBillsById[shop.shop_id] || []).map((bill) => (
+                                  <option key={bill.bill_no} value={bill.bill_no}>
+                                    {bill.bill_no} - {formatCurrency(bill.balance)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-[auto_auto] md:justify-start md:items-end">
                           <button
                             type="button"
                             onClick={() => saveFollowup(shop)}
