@@ -174,6 +174,7 @@ export default function Dashboard() {
     prev_moc_icd_profit: 0,
     prev_moc_profit: 0,
     prev_moc_growth_percent: null,
+    prev_moc_icd_growth_percent: null,
     prev_moc_profit_growth_percent: null,
     expense_breakdown: [],
     recent_expenses: [],
@@ -233,6 +234,7 @@ export default function Dashboard() {
   })
   const [hoveredExpenseIndex, setHoveredExpenseIndex] = useState(null)
   const [showMocHistoryModal, setShowMocHistoryModal] = useState(false)
+  const [showIcdHistoryModal, setShowIcdHistoryModal] = useState(false)
   const [showMocProfitModal, setShowMocProfitModal] = useState(false)
   const [showMocClosingStockModal, setShowMocClosingStockModal] = useState(false)
   const [showStockTrendModal, setShowStockTrendModal] = useState(false)
@@ -277,6 +279,13 @@ export default function Dashboard() {
 
   const openMocProfitModal = async () => {
     setShowMocProfitModal(true)
+    if (!mocHistory.length) {
+      await loadMocHistory()
+    }
+  }
+
+  const openIcdHistoryModal = async () => {
+    setShowIcdHistoryModal(true)
     if (!mocHistory.length) {
       await loadMocHistory()
     }
@@ -408,6 +417,49 @@ export default function Dashboard() {
       padding
     )
   }, [mocProfitHistoryWithGrowth])
+
+  const icdHistoryWithGrowth = useMemo(
+    () =>
+      filteredMocHistory.map((entry, index, rows) => {
+        const previous = rows[index - 1]
+        const icdSales = Number(entry.total_icd_sales || 0)
+        const previousIcdSales = Number(previous?.total_icd_sales || 0)
+        const growthPercent =
+          previous && previousIcdSales
+            ? ((icdSales - previousIcdSales) / previousIcdSales) * 100
+            : null
+
+        return {
+          ...entry,
+          growthPercent,
+        }
+      }),
+    [filteredMocHistory]
+  )
+
+  const icdSalesChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      icdHistoryWithGrowth.map((entry) => Number(entry.total_icd_sales || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [icdHistoryWithGrowth])
+
+  const icdProfitChart = useMemo(() => {
+    const width = 760
+    const height = 280
+    const padding = { top: 20, right: 20, bottom: 40, left: 72 }
+    return buildLineChartPoints(
+      icdHistoryWithGrowth.map((entry) => Number(entry.icd_profit || 0)),
+      width,
+      height,
+      padding
+    )
+  }, [icdHistoryWithGrowth])
 
   const mocClosingStockHistoryWithGrowth = useMemo(
     () =>
@@ -855,7 +907,7 @@ export default function Dashboard() {
 
         <button
           type="button"
-          onClick={openMocHistoryModal}
+          onClick={openIcdHistoryModal}
           className="group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-[1.35rem] border border-cyan-100 bg-gradient-to-br from-white via-cyan-50/70 to-sky-100/60 p-5 text-left shadow-[0_18px_45px_-28px_rgba(8,145,178,0.38)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-28px_rgba(8,145,178,0.46)] focus:outline-none focus:ring-2 focus:ring-cyan-200 md:min-h-[148px] lg:col-span-3"
         >
           <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-white/45 blur-2xl" />
@@ -872,6 +924,20 @@ export default function Dashboard() {
             <p className="break-words text-[0.92rem] font-semibold leading-snug text-cyan-800 md:text-[1rem] xl:text-[1.08rem]">
               Profit {formatCurrency(data.prev_moc_icd_profit)}
             </p>
+            {data.prev_moc_icd_growth_percent === null ? (
+              <p className="text-sm text-cyan-900/65">Growth not available yet</p>
+            ) : (
+              <div
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm ${
+                  data.prev_moc_icd_growth_percent >= 0
+                    ? "bg-white/80 text-emerald-700"
+                    : "bg-white/80 text-rose-700"
+                }`}
+              >
+                {data.prev_moc_icd_growth_percent >= 0 ? <TrendUpIcon /> : <TrendDownIcon />}
+                {Math.abs(data.prev_moc_icd_growth_percent).toFixed(2)}%
+              </div>
+            )}
           </div>
         </button>
 
@@ -1056,6 +1122,171 @@ export default function Dashboard() {
                               <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.target_month}</td>
                               <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_sales)}</td>
                               <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_discount)}</td>
+                              <td className="px-4 py-3 text-sm">
+                                <span
+                                  className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
+                                    entry.growthPercent === null
+                                      ? "bg-slate-100 text-slate-500"
+                                      : entry.growthPercent >= 0
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : "bg-rose-50 text-rose-700"
+                                  }`}
+                                >
+                                  {formatPercent(entry.growthPercent)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showIcdHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">ICD Sales And Profit</h3>
+                <p className="text-sm text-slate-500">
+                  Monthly ICD sales growth with ICD profit trend in a single chart.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <select
+                  value={mocHistoryFilter}
+                  onChange={(e) => setMocHistoryFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                >
+                  <option value="6m">Last 6 MOCs</option>
+                  <option value="12m">Last 12 MOCs</option>
+                  <option value="24m">Last 24 MOCs</option>
+                  <option value="all">All Time</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowIcdHistoryModal(false)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-5">
+              {mocHistoryLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  Loading ICD history...
+                </div>
+              ) : icdHistoryWithGrowth.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-slate-500">
+                  No ICD history recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Displayed MOCs</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">{icdHistoryWithGrowth.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest ICD Sales</p>
+                      <p className="mt-2 text-2xl font-semibold text-slate-900">
+                        {formatCurrency(icdHistoryWithGrowth[icdHistoryWithGrowth.length - 1]?.total_icd_sales)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Latest ICD Growth</p>
+                      <p
+                        className={`mt-2 text-2xl font-semibold ${
+                          (icdHistoryWithGrowth[icdHistoryWithGrowth.length - 1]?.growthPercent || 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {formatPercent(icdHistoryWithGrowth[icdHistoryWithGrowth.length - 1]?.growthPercent)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-base font-semibold text-slate-900">ICD Sales vs ICD Profit</h4>
+                        <p className="text-sm text-slate-500">Green line shows ICD sales and blue line shows ICD profit.</p>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
+                        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /> ICD Sales</span>
+                        <span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-sky-600" /> ICD Profit</span>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <svg viewBox="0 0 760 280" className="h-[280px] min-w-[760px] w-full">
+                        {icdSalesChart.yTicks.map((tick) => (
+                          <g key={tick.y}>
+                            <line x1="72" y1={tick.y} x2="740" y2={tick.y} stroke="#e2e8f0" strokeDasharray="4 4" />
+                            <text x="64" y={tick.y + 4} textAnchor="end" fontSize="11" fill="#64748b">
+                              {formatCurrency(tick.value)}
+                            </text>
+                          </g>
+                        ))}
+                        <line x1="72" y1="20" x2="72" y2="240" stroke="#94a3b8" />
+                        <line x1="72" y1="240" x2="740" y2="240" stroke="#94a3b8" />
+                        <polyline fill="none" stroke="#059669" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={icdSalesChart.points} />
+                        <polyline fill="none" stroke="#0284c7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points={icdProfitChart.points} />
+
+                        {icdHistoryWithGrowth.map((entry, index) => {
+                          const salesValues = icdHistoryWithGrowth.map((item) => Number(item.total_icd_sales || 0))
+                          const profitValues = icdHistoryWithGrowth.map((item) => Number(item.icd_profit || 0))
+                          const salesMax = Math.max(...salesValues, 0) || 1
+                          const profitMax = Math.max(...profitValues, 0) || 1
+                          const innerWidth = 760 - 72 - 20
+                          const innerHeight = 280 - 20 - 40
+                          const x =
+                            salesValues.length === 1
+                              ? 72 + innerWidth / 2
+                              : 72 + (index / (salesValues.length - 1)) * innerWidth
+                          const salesY = 20 + innerHeight - (Number(entry.total_icd_sales || 0) / salesMax) * innerHeight
+                          const profitY = 20 + innerHeight - (Number(entry.icd_profit || 0) / profitMax) * innerHeight
+
+                          return (
+                            <g key={entry.id}>
+                              <circle cx={x} cy={salesY} r="4.5" fill="#059669" />
+                              <circle cx={x} cy={profitY} r="4.5" fill="#0284c7" />
+                              <text x={x} y="260" textAnchor="middle" fontSize="11" fill="#64748b">
+                                {formatMonthLabel(entry.moc_month)}
+                              </text>
+                            </g>
+                          )
+                        })}
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">MOC</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">ICD Sales</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">ICD Profit</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Growth</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {icdHistoryWithGrowth
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <tr key={entry.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.target_month}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.total_icd_sales)}</td>
+                              <td className="px-4 py-3 text-sm text-slate-700">{formatCurrency(entry.icd_profit)}</td>
                               <td className="px-4 py-3 text-sm">
                                 <span
                                   className={`inline-flex rounded-full px-2.5 py-1 font-semibold ${
