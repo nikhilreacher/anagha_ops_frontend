@@ -38,6 +38,13 @@ function safeText(value, fallback = "") {
   return typeof value === "string" ? value : fallback
 }
 
+function isBillFullyCleared(bill) {
+  const remaining = Number(bill?.remaining_balance || 0)
+  const pending = Number(bill?.pending_amount || 0)
+  const applied = Number(bill?.applied_amount || 0)
+  return remaining <= 0 || (pending > 0 && Math.abs(pending - applied) < 0.01)
+}
+
 export default function Payments({ auth }) {
   const [beats, setBeats] = useState([])
   const [shops, setShops] = useState([])
@@ -434,16 +441,24 @@ export default function Payments({ auth }) {
                               </div>
 
                               <div className="mt-3 space-y-2">
-                                {payment.bills.map((bill) => (
+                                {payment.bills.map((bill) => {
+                                  const fullyCleared = isBillFullyCleared(bill)
+                                  const tileClass = fullyCleared
+                                    ? "border-emerald-200 bg-emerald-50"
+                                    : "border-amber-200 bg-amber-50"
+                                  return (
                                   <div
                                     key={`${payment.paid_at}-${bill.bill_no}`}
-                                    className="flex flex-col gap-1 rounded-md bg-slate-50 px-3 py-2 md:flex-row md:items-center md:justify-between"
+                                    className={`flex flex-col gap-3 rounded-md border px-3 py-3 md:flex-row md:items-start md:justify-between ${tileClass}`}
                                   >
                                     <div>
                                       <p className="text-sm font-medium text-slate-900">{bill.bill_no}</p>
                                       <p className="text-xs text-slate-500">Bill Date: {formatDate(bill.bill_date)}</p>
                                     </div>
                                     <div className="text-left md:text-right">
+                                      <p className="text-xs text-slate-600">
+                                        Bill Amount: {formatCurrency(bill.bill_amount || 0)} / Pending Amount: {formatCurrency(bill.pending_amount || 0)}
+                                      </p>
                                       <p className="text-sm font-medium text-emerald-700">
                                         Applied {formatCurrency(bill.applied_amount)}
                                       </p>
@@ -452,7 +467,8 @@ export default function Payments({ auth }) {
                                       </p>
                                     </div>
                                   </div>
-                                ))}
+                                  )
+                                })}
                               </div>
                             </div>
                           ))}
