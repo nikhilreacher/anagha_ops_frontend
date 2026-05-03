@@ -162,6 +162,7 @@ export default function IT() {
   const [recentIcdCredits, setRecentIcdCredits] = useState([])
   const [showIcdCreditForm, setShowIcdCreditForm] = useState(false)
   const [showRecentIcdCredits, setShowRecentIcdCredits] = useState(false)
+  const [isEditingIcdCredit, setIsEditingIcdCredit] = useState(false)
   const [icdCreditForm, setIcdCreditForm] = useState({
     beat: "",
     shop_id: "",
@@ -239,6 +240,86 @@ export default function IT() {
     axios.get(`${API_BASE}/shops/icd-credit/recent`, { params: { limit: 2 } }).then((res) => setRecentIcdCredits(res.data))
   }
 
+  const fillIcdCreditFormFromExisting = (ledger) => {
+    setIcdCreditForm((current) => ({
+      ...current,
+      beat: ledger.beat || "",
+      shop_id: ledger.shop_id ? String(ledger.shop_id) : "",
+      bill_no: ledger.bill_no || "",
+      bill_date: ledger.bill_date || currentDateInput(),
+      delivery_date: ledger.delivery_date || ledger.bill_date || currentDateInput(),
+      bill_amt: ledger.bill_amt ?? "",
+      paid_amt: ledger.paid_amt ?? "",
+      remarks: ledger.remarks || "",
+    }))
+    setIsEditingIcdCredit(true)
+    if (ledger.beat) {
+      loadIcdShops(ledger.beat)
+    }
+  }
+
+  const resetIcdCreditForm = () => {
+    setIcdCreditForm((current) => ({
+      ...current,
+      shop_id: "",
+      bill_no: "",
+      bill_date: currentDateInput(),
+      delivery_date: currentDateInput(),
+      bill_amt: "",
+      paid_amt: "",
+      remarks: "",
+    }))
+    setIsEditingIcdCredit(false)
+  }
+
+  const checkExistingIcdBill = async (rawBillNo, options = {}) => {
+    const normalizedBillNo = rawBillNo.trim()
+    if (!normalizedBillNo) {
+      if (!options.keepEditingState) {
+        setIsEditingIcdCredit(false)
+      }
+      return null
+    }
+
+    try {
+      const response = await axios.get(`${API_BASE}/shops/icd-credit/by-bill`, {
+        params: { bill_no: normalizedBillNo },
+      })
+      return response.data?.ledger || null
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        if (!options.keepEditingState) {
+          setIsEditingIcdCredit(false)
+        }
+        return null
+      }
+      throw error
+    }
+  }
+
+  const handleExistingIcdBillChoice = async (rawBillNo) => {
+    const existingLedger = await checkExistingIcdBill(rawBillNo, { keepEditingState: true })
+    if (!existingLedger) {
+      return false
+    }
+
+    if (isEditingIcdCredit && (existingLedger.bill_no || "").toLowerCase() === rawBillNo.trim().toLowerCase()) {
+      return true
+    }
+
+    const wantsToEdit = window.confirm(
+      "Entry for this bill no. already exists. Do you want to edit/modify the existing details?"
+    )
+    if (wantsToEdit) {
+      fillIcdCreditFormFromExisting(existingLedger)
+      return true
+    }
+
+    setIcdCreditForm((current) => ({ ...current, bill_no: "" }))
+    setIsEditingIcdCredit(false)
+    return true
+  }
+
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(AUTH_STORAGE_KEY)
@@ -306,29 +387,40 @@ export default function IT() {
       return
     }
 
-    await axios.post(`${API_BASE}/shops/icd-credit`, null, {
-      params: {
-        shop_id: Number(icdCreditForm.shop_id),
-        bill_no: icdCreditForm.bill_no,
-        bill_date: icdCreditForm.bill_date,
-        delivery_date: icdCreditForm.delivery_date,
-        bill_amt: Number(icdCreditForm.bill_amt),
-        paid_amt: Number(icdCreditForm.paid_amt || 0),
-        remarks: icdCreditForm.remarks,
-        created_by: authRole === "admin" ? "Admin" : "IT",
-      },
-    })
+    try {
+      const response = await axios.post(`${API_BASE}/shops/icd-credit`, null, {
+        params: {
+          shop_id: Number(icdCreditForm.shop_id),
+          bill_no: icdCreditForm.bill_no,
+          bill_date: icdCreditForm.bill_date,
+          delivery_date: icdCreditForm.delivery_date,
+          bill_amt: Number(icdCreditForm.bill_amt),
+          paid_amt: Number(icdCreditForm.paid_amt || 0),
+          remarks: icdCreditForm.remarks,
+          created_by: authRole === "admin" ? "Admin" : "IT",
+          edit_existing: isEditingIcdCredit,
+        },
+      })
 
-    alert("ICD credit added")
-    setIcdCreditForm((current) => ({
-      ...current,
-      shop_id: "",
-      bill_no: "",
-      bill_amt: "",
-      paid_amt: "",
-      remarks: "",
-    }))
-    loadRecentIcdCredits()
+      alert(response.data?.mode === "updated" ? "ICD credit updated" : "ICD credit added")
+      resetIcdCreditForm()
+      loadRecentIcdCredits()
+    } catch (error) {
+      const duplicatePayload = error?.response?.status === 409 ? error.response.data?.detail : null
+      if (!duplicatePayload?.existing) {
+        throw error
+      }
+
+      const wantsToEdit = window.confirm(
+        `${duplicatePayload.message || "Entry for this bill no. already exists."} Do you want to edit/modify the existing details?`
+      )
+      if (wantsToEdit) {
+        fillIcdCreditFormFromExisting(duplicatePayload.existing)
+      } else {
+        setIcdCreditForm((current) => ({ ...current, bill_no: "" }))
+        setIsEditingIcdCredit(false)
+      }
+    }
   }
 
   const applyCurrentMonthFilter = () => {
@@ -572,7 +664,18 @@ export default function IT() {
                 <label className="text-xs font-medium uppercase tracking-[0.12em] text-gray-600">Bill No</label>
                 <input
                   value={icdCreditForm.bill_no}
-                  onChange={(e) => setIcdCreditForm((current) => ({ ...current, bill_no: e.target.value }))}
+                  onChange={(e) => {
+                    const nextBillNo = e.target.value
+                    setIcdCreditForm((current) => ({ ...current, bill_no: nextBillNo }))
+                    if (!nextBillNo.trim()) {
+                      setIsEditingIcdCredit(false)
+                    }
+                  }}
+                  onBlur={() => {
+                    if (icdCreditForm.bill_no.trim()) {
+                      handleExistingIcdBillChoice(icdCreditForm.bill_no).catch(() => {})
+                    }
+                  }}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   placeholder="Optional"
                 />
@@ -640,7 +743,7 @@ export default function IT() {
               onClick={saveIcdCredit}
               className="mt-4 inline-flex h-[40px] items-center justify-center rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
             >
-              Add ICD Credit
+              {isEditingIcdCredit ? "Update ICD Credit" : "Add ICD Credit"}
             </button>
           </div>
         ) : (

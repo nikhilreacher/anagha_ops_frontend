@@ -67,7 +67,7 @@ export default function Credit({ auth }) {
     return auth?.business_type === "icd" ? "icd" : "mainline"
   }, [auth?.business_type, location.search])
   const [businessType, setBusinessType] = useState(initialBusinessType)
-  const [selectedBeat, setSelectedBeat] = useState("")
+  const [selectedBeats, setSelectedBeats] = useState([])
   const [search, setSearch] = useState("")
   const [expandedShopId, setExpandedShopId] = useState(null)
   const [shopBillsById, setShopBillsById] = useState({})
@@ -131,7 +131,7 @@ export default function Credit({ auth }) {
       setLoadingSummary(true)
       setExpandedShopId(null)
       setShopBillsById({})
-      setSelectedBeat("")
+      setSelectedBeats([])
       try {
         const [creditResponse, beatsResponse] = await Promise.all([
           axios.get(`${API_BASE}/admin/credit`, { params: { business_type: businessType } }),
@@ -189,23 +189,27 @@ export default function Credit({ auth }) {
   const filteredData = useMemo(() => {
     const normalizedSearch = search.toLowerCase()
     return data.filter((shop) => {
-      const matchesBeat = !selectedBeat || shop.beat === selectedBeat
+      const matchesBeat = selectedBeats.length === 0 || selectedBeats.includes(shop.beat || "")
       const matchesSearch =
         !search ||
         getShopDisplayName(shop).toLowerCase().includes(normalizedSearch) ||
         getBeatDisplayName(shop).toLowerCase().includes(normalizedSearch)
       return matchesBeat && matchesSearch
     })
-  }, [data, selectedBeat, search])
+  }, [data, selectedBeats, search])
 
   const selectedBeatLabel = useMemo(() => {
-    if (!selectedBeat) {
+    if (selectedBeats.length === 0) {
       return "All Beats"
     }
 
-    const matchedBeat = beats.find((beat) => (beat.beat_value ?? beat.id) === selectedBeat)
-    return matchedBeat?.name || selectedBeat
-  }, [beats, selectedBeat])
+    if (selectedBeats.length === 1) {
+      const matchedBeat = beats.find((beat) => (beat.beat_value ?? beat.id) === selectedBeats[0])
+      return matchedBeat?.name || selectedBeats[0]
+    }
+
+    return `${selectedBeats.length} Beats`
+  }, [beats, selectedBeats])
 
   const filteredOutstandingTotal = useMemo(
     () => filteredData.reduce((sum, shop) => sum + Number(shop.outstanding || 0), 0),
@@ -289,7 +293,7 @@ export default function Credit({ auth }) {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 xl:min-w-[18rem]">
           <p className="text-sm font-medium text-slate-500">
-            {!selectedBeat ? "Total Credit" : `${selectedBeatLabel} Credit`}
+            {selectedBeats.length === 0 ? "Total Credit" : `${selectedBeatLabel} Credit`}
           </p>
           <p className="mt-2 text-2xl font-semibold text-red-600">
             {formatCurrency(filteredOutstandingTotal)}
@@ -334,17 +338,22 @@ export default function Credit({ auth }) {
             />
 
             <select
-              value={selectedBeat}
-              onChange={(e) => setSelectedBeat(e.target.value)}
-              className="border p-2 w-full rounded"
+              multiple
+              value={selectedBeats}
+              onChange={(e) =>
+                setSelectedBeats(Array.from(e.target.selectedOptions, (option) => option.value))
+              }
+              className="border p-2 w-full rounded min-h-[7.5rem]"
             >
-              <option value="">All Beats</option>
               {beats.map((beat) => (
                 <option key={beat.id} value={beat.beat_value ?? beat.id}>
                   {beat.name}{beat.route_name ? ` - ${beat.route_name}` : ""}
                 </option>
               ))}
             </select>
+            <p className="text-xs text-slate-500 md:col-span-2">
+              Select one or more beats. Leave all unselected to view every beat.
+            </p>
           </div>
         </div>
       </div>
@@ -400,7 +409,7 @@ export default function Credit({ auth }) {
       ) : null}
 
       {!loadingSummary && filteredData.length === 0 ? (
-        <p className="text-sm text-gray-500">No credit data found for the selected beat.</p>
+        <p className="text-sm text-gray-500">No credit data found for the selected beat filter.</p>
       ) : filteredData.length === 0 ? (
         null
       ) : (
