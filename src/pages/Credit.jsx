@@ -50,6 +50,10 @@ function getBeatDisplayName(shop) {
   return safeText(shop?.beat, "")
 }
 
+function getPhoneDisplayName(shop) {
+  return safeText(shop?.phone, "")
+}
+
 function currentDateInput() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -425,20 +429,23 @@ export default function Credit({ auth }) {
                   onClick={() => toggleShop(shop.shop_id)}
                   className="w-full text-left flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
                 >
-                  <div className="space-y-1 text-left flex flex-col items-start">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold leading-tight">{getShopDisplayName(shop)}</p>
-                      <span
-                        className="inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-semibold"
+                    <div className="space-y-1 text-left flex flex-col items-start">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold leading-tight">{getShopDisplayName(shop)}</p>
+                        <span
+                          className="inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-xs font-semibold"
                         style={agePillStyle(shop.max_age)}
                       >
                         {shop.max_age}d
                       </span>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-none pl-0 ml-0">
+                        {getBeatDisplayName(shop) || "No beat"}
+                      </p>
+                      <p className="text-xs text-gray-500 leading-none pl-0 ml-0">
+                        {getPhoneDisplayName(shop) || "No phone number"}
+                      </p>
                     </div>
-                    <p className="text-xs text-gray-500 leading-none pl-0 ml-0">
-                      {getBeatDisplayName(shop) || "No beat"}
-                    </p>
-                  </div>
 
                   <div className="grid grid-cols-1 gap-4 text-xs md:text-right">
                     <div>
