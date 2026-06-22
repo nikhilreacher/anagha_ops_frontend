@@ -469,12 +469,18 @@ export default function Credit({ auth }) {
                           <p className="font-medium text-sm">{bill.bill_no}</p>
                           <p className="text-xs text-gray-500">Bill Date: {bill.bill_date || "NA"}</p>
                           <p className="text-xs text-gray-500">Delivery Date: {bill.delivery_date || "NA"}</p>
+                          <p className="text-xs text-gray-500">
+                            Paid / Total: {formatCurrency(bill.paid_amount)} / {formatCurrency(bill.bill_amount)}
+                          </p>
                           {bill.remarks && (
                             <p className="text-xs text-gray-500">Remarks: {bill.remarks}</p>
                           )}
                         </div>
 
-                        <p className="font-semibold text-sm text-red-600">{formatCurrency(bill.balance)}</p>
+                        <div className="text-left md:text-right">
+                          <p className="font-semibold text-sm text-red-600">{formatCurrency(bill.balance)}</p>
+                          <p className="text-[11px] text-slate-500">Remaining</p>
+                        </div>
                       </div>
                     ))}
 
